@@ -6,7 +6,9 @@ import {
   stripJsonFence,
   cleanTheaterText,
   newConversationId,
+  buildTheaterRequest,
   TheaterOption,
+  TheaterRequest,
 } from '../utils/scenarioGen';
 
 interface InteractiveTheaterModalProps {
@@ -16,8 +18,6 @@ interface InteractiveTheaterModalProps {
 }
 
 /* 设定项 */
-const GRADES = ['大一', '大二', '大三', '大四', '研一', '研二'];
-const MAJORS = ['计算机', '会计', '金融', '设计', '医学', '教育', '外语', '其他'];
 const SCENES = ['刷单返利', '校园贷', '冒充老师', '求职诈骗', '快递理赔', 'AI换脸诈骗'];
 
 /* 本地兜底(无 AppKey 时展示一段静态剧本,保持页面可用) */
@@ -68,11 +68,10 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
   const [isResponding, setIsResponding] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
-  const [grade, setGrade] = useState('大三');
-  const [major, setMajor] = useState('计算机');
   const [scene, setScene] = useState(SCENES[0]);
 
   const convIdRef = useRef<string>(newConversationId('theater'));
+  const roundRef = useRef<number>(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -140,12 +139,11 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
   const startScene = (sc: string) => {
     if (!hasKey) return;
     convIdRef.current = newConversationId('theater');
+    roundRef.current = 0;
     setMessages([]);
     setGenError(null);
     setScene(sc);
-    const text = `场景:${sc},信息已确认,直接生成剧本`;
-    streamDmReply(text);
-    
+    streamDmReply(buildTheaterRequest({ intent: 'generate_scene', round: 0, scene: sc }));
   };
 
   /* 开场: 有 AppKey 自动开一场;无 Key 展示本地静态剧本 */
@@ -166,14 +164,14 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasKey]);
 
-  /* 用户回复(自由输入 / 指令) */
+  /* 用户回复(自由输入) */
   const handleSend = (text?: string) => {
     const t = (text ?? inputRef.current?.value ?? '').trim();
     if (!t || isResponding) return;
     if (inputRef.current) inputRef.current.value = '';
-    if (!hasKey) return; // 无 Key 不允许发送
+    if (!hasKey) return;
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', visible: t }]);
-    streamDmReply(t);
+    streamDmReply(buildTheaterRequest({ intent: 'free_text', round: roundRef.current, context: t }));
   };
 
   /* 用户点选 A/B/C */
@@ -187,8 +185,9 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
       ...prev,
       { id: `user-${Date.now()}`, role: 'user', visible: `${opt.key}. ${opt.text}` },
     ]);
-    if (!hasKey) return; // 本地样本:仅揭示手册,不请求 ADP
-    streamDmReply(opt.key);
+    if (!hasKey) return;
+    roundRef.current += 1;
+    streamDmReply(buildTheaterRequest({ intent: 'choice_feedback', round: roundRef.current, choice: opt.key }));
   };
 
   /* 选项按钮着色(上当/犹豫/正确) */
@@ -229,30 +228,9 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
           </button>
         </div>
 
-        {/* 设定条:年级 / 专业 / 场景(有 Key 时可重开) */}
+        {/* 场景切换条(有 Key 时可重开) */}
         <div className="bg-[#EEECE6] border-b border-[#141414] px-4 py-2.5 flex flex-wrap items-center gap-2 text-xs font-mono">
-          <span className="uppercase text-[#141414]/60 font-bold">设定:</span>
-          <select
-            value={grade}
-            disabled={!hasKey}
-            onChange={(e) => setGrade(e.target.value)}
-            className="bg-white border border-[#141414] px-2 py-1 disabled:opacity-50"
-          >
-            {GRADES.map((g) => (
-              <option key={g}>{g}</option>
-            ))}
-          </select>
-          <select
-            value={major}
-            disabled={!hasKey}
-            onChange={(e) => setMajor(e.target.value)}
-            className="bg-white border border-[#141414] px-2 py-1 disabled:opacity-50"
-          >
-            {MAJORS.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
-          <span className="text-[#141414]/40">|</span>
+          <span className="uppercase text-[#141414]/60 font-bold">场景:</span>
           {SCENES.map((s) => (
             <button
               key={s}
@@ -364,16 +342,33 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
         {/* 指令快捷条 + 输入 */}
         <div className="bg-[#EEECE6] border-t border-[#141414] px-4 py-3">
           <div className="flex flex-wrap gap-2 mb-2">
-            {['再来一轮', '换个场景', '复盘结束'].map((cmd) => (
-              <button
-                key={cmd}
-                disabled={!hasKey || isResponding}
-                onClick={() => handleSend(cmd)}
-                className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                {cmd}
-              </button>
-            ))}
+            <button
+              disabled={!hasKey || isResponding}
+              onClick={() => startScene(scene)}
+              className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              再来一轮
+            </button>
+            <button
+              disabled={!hasKey || isResponding}
+              onClick={() => {
+                const idx = SCENES.indexOf(scene);
+                startScene(SCENES[(idx + 1) % SCENES.length]);
+              }}
+              className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              换个场景
+            </button>
+            <button
+              disabled={!hasKey || isResponding}
+              onClick={() => {
+                setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', visible: '复盘结束' }]);
+                streamDmReply(buildTheaterRequest({ intent: 'round_review', round: roundRef.current }));
+              }}
+              className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              复盘结束
+            </button>
           </div>
           <form
             onSubmit={(e) => {

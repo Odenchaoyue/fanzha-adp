@@ -225,9 +225,39 @@ function buildRoutingErrorHint(raw: string): string {
   ].join('\n');
 }
 
+/* ============ 方案 B: intent 协议标签 ============ */
+
+/**
+ * 前端 → ADP 的请求协议:用 [intent=xxx] 标签让 Agent1 做确定性路由(不依赖大模型判断意图)。
+ * Agent1 提示词里写死规则:看到 [intent= 标签 → 转发剧本线;没有 → 走 FAQ。
+ */
+export type TheaterIntent =
+  | 'generate_scene'    // 生成新场景(round=0)
+  | 'choice_feedback'   // 用户选了 A/B/C,请求反馈 + 下一轮升级
+  | 'round_review'      // 复盘结束
+  | 'free_text';        // 用户自由输入(当作当前场景内的回应)
+
+export interface TheaterRequest {
+  intent: TheaterIntent;
+  round: number;
+  scene?: string;
+  choice?: string;
+  context?: string;     // 自由输入正文
+}
+
+/** 把结构化请求拼成带协议标签的文本 */
+export function buildTheaterRequest(req: TheaterRequest): string {
+  const tags: string[] = [`[intent=${req.intent}]`, `[round=${req.round}]`];
+  if (req.scene) tags.push(`[scene=${req.scene}]`);
+  if (req.choice) tags.push(`[choice=${req.choice}]`);
+  const header = tags.join('');
+  const body = req.context ? `\n${req.context}` : '';
+  return header + body;
+}
+
 /** 发一条消息给 ADP 工作流(互动剧场),返回完整文本;支持流式回调 */
 export async function runTheaterChat(
-  text: string,
+  textOrRequest: string | TheaterRequest,
   config: AppConfig,
   handlers: {
     conversationId: string;
@@ -239,6 +269,9 @@ export async function runTheaterChat(
   if (!config.appKey || !config.appKey.trim()) {
     throw new Error('未配置 AppKey,无法连接 ADP 工作流');
   }
+  const text = typeof textOrRequest === 'string'
+    ? textOrRequest
+    : buildTheaterRequest(textOrRequest);
   return sendToADP({
     text,
     appKey: config.appKey,
