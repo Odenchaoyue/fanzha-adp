@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-main: #FAF9F6;
+    --bg-secondary: #EEECE6;
+    --fg-main: #141414;
+    --fg-muted: #6B6964;
+    --accent-orange: #FF4D00;
+    --border-dark: #141414;
+    --border-subtle: #E0DDD5;
+    
+    --primary: #141414;
+    --primary-container: #222222;
+    --secondary: #FF4D00;
+    --secondary-container: #E54500;
+    --surface: #FAF9F6;
+    --surface-container-low: #F4F2EC;
+    --surface-container: #EEECE6;
+    --surface-container-high: #E6E3DB;
+    --surface-container-highest: #DDD9CF;
+    --surface-container-lowest: #FFFFFF;
+    --outline: #141414;
+    --outline-variant: #D5D1C7;
+    --on-surface: #141414;
+    --on-surface-variant: #595753;
+  }
+
+  body {
+    background-color: #FAF9F6;
+    color: #141414;
+    font-family: 'Plus Jakarta Sans', 'Noto Sans SC', sans-serif;
+  }
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: 300;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+}
+
+.material-symbols-outlined.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Font Classes */
+.font-serif-editorial {
+  font-family: 'Playfair Display', 'Instrument Serif', Georgia, serif;
+}
+
+.font-data-display {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.font-headline {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans SC', sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #FAF9F6;
+}
+::-webkit-scrollbar-thumb {
+  background: #141414;
+  border-radius: 0px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #FF4D00;
+}
