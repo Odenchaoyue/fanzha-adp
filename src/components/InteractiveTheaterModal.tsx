@@ -72,6 +72,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
 
   const convIdRef = useRef<string>(newConversationId('theater'));
   const roundRef = useRef<number>(0);
+  const lastSceneRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -105,6 +106,10 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
         onError: (msg) => setGenError(msg),
       });
       const turn = parseTheaterTurn(buf);
+      // 记录本轮 DM 正文作为"上一轮场景摘要",供下一轮请求拼上下文
+      if (turn.visible && !turn.routingError) {
+        lastSceneRef.current = turn.visible.replace(/\s+/g, ' ').slice(0, 120);
+      }
       setMessages((prev) =>
         prev.map((m) =>
           m.id === turnId
@@ -140,10 +145,11 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     if (!hasKey) return;
     convIdRef.current = newConversationId('theater');
     roundRef.current = 0;
+    lastSceneRef.current = '';
     setMessages([]);
     setGenError(null);
     setScene(sc);
-    streamDmReply(buildTheaterRequest({ intent: 'generate_scene', round: 0, scene: sc }));
+    streamDmReply(buildTheaterRequest({ round: 0, scene: sc }));
   };
 
   /* 开场: 有 AppKey 自动开一场;无 Key 展示本地静态剧本 */
@@ -171,7 +177,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     if (inputRef.current) inputRef.current.value = '';
     if (!hasKey) return;
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', visible: t }]);
-    streamDmReply(buildTheaterRequest({ intent: 'free_text', round: roundRef.current, context: t }));
+    streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, freeText: t }));
   };
 
   /* 用户点选 A/B/C */
@@ -187,7 +193,13 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     ]);
     if (!hasKey) return;
     roundRef.current += 1;
-    streamDmReply(buildTheaterRequest({ intent: 'choice_feedback', round: roundRef.current, choice: opt.key }));
+    streamDmReply(
+      buildTheaterRequest({
+        round: roundRef.current,
+        lastScene: lastSceneRef.current,
+        choice: `${opt.key} ${opt.text}`,
+      })
+    );
   };
 
   /* 选项按钮着色(上当/犹豫/正确) */
@@ -363,7 +375,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
               disabled={!hasKey || isResponding}
               onClick={() => {
                 setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', visible: '复盘结束' }]);
-                streamDmReply(buildTheaterRequest({ intent: 'round_review', round: roundRef.current }));
+                streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, review: true }));
               }}
               className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >

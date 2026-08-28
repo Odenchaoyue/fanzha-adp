@@ -225,34 +225,35 @@ function buildRoutingErrorHint(raw: string): string {
   ].join('\n');
 }
 
-/* ============ 方案 B: intent 协议标签 ============ */
+/* ============ 极简方案: 单 Agent + 前端状态机 ============ */
 
 /**
- * 前端 → ADP 的请求协议:用 [intent=xxx] 标签让 Agent1 做确定性路由(不依赖大模型判断意图)。
- * Agent1 提示词里写死规则:看到 [intent= 标签 → 转发剧本线;没有 → 走 FAQ。
+ * 前端 → ADP 的请求协议:ADP 只放一个「剧本生成」Agent,无路由、无意图识别。
+ * 前端维护全部状态(轮次/上一轮摘要/用户选择),每轮把完整上下文拼成自然语言发过去,
+ * ADP 只是"收上下文 → 跑大模型 → 返回文本"的管道。
  */
-export type TheaterIntent =
-  | 'generate_scene'    // 生成新场景(round=0)
-  | 'choice_feedback'   // 用户选了 A/B/C,请求反馈 + 下一轮升级
-  | 'round_review'      // 复盘结束
-  | 'free_text';        // 用户自由输入(当作当前场景内的回应)
-
 export interface TheaterRequest {
-  intent: TheaterIntent;
-  round: number;
-  scene?: string;
-  choice?: string;
-  context?: string;     // 自由输入正文
+  round: number;        // 0=开场, 1+=反馈/自由输入, 复盘轮为当前 round
+  scene?: string;       // round 0 的场景关键词
+  lastScene?: string;   // 上一轮场景摘要(来自上一次 DM 回复的正文)
+  choice?: string;      // 用户选的选项文本(如 "A 相信对方")
+  freeText?: string;    // 用户自由输入正文
+  review?: boolean;     // 复盘轮标记
 }
 
-/** 把结构化请求拼成带协议标签的文本 */
+/** 把结构化请求拼成自然语言上下文 */
 export function buildTheaterRequest(req: TheaterRequest): string {
-  const tags: string[] = [`[intent=${req.intent}]`, `[round=${req.round}]`];
-  if (req.scene) tags.push(`[scene=${req.scene}]`);
-  if (req.choice) tags.push(`[choice=${req.choice}]`);
-  const header = tags.join('');
-  const body = req.context ? `\n${req.context}` : '';
-  return header + body;
+  if (req.review) {
+    return `[round=${req.round}] 演练结束,请生成复盘报告。对话摘要:${req.lastScene || '已完成多轮演练'}`;
+  }
+  if (req.round === 0) {
+    return `[round=0] 场景:${req.scene || ''}。请生成开场场景 + A/B/C 选项。`;
+  }
+  if (req.choice) {
+    return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。用户选择了「${req.choice}」。请给出选择后果 + 升级场景 + 新 A/B/C 选项。`;
+  }
+  // 自由输入
+  return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。用户说:「${req.freeText || ''}」。请继续推进骗局并给出新的 A/B/C 选项。`;
 }
 
 /** 发一条消息给 ADP 工作流(互动剧场),返回完整文本;支持流式回调 */
