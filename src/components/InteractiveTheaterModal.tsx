@@ -204,9 +204,17 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
 
   /* 选项按钮着色(上当/犹豫/正确) */
   const optionColor = (pathType: string) => {
-    if (pathType === 'scam') return 'border-[#FF4D00] hover:bg-[#FF4D00] hover:text-white';
-    if (pathType === 'correct') return 'border-emerald-600 hover:bg-emerald-600 hover:text-white';
-    return 'border-[#141414]/40 hover:bg-[#141414] hover:text-white';
+    if (pathType === 'scam') return 'border-red-300 bg-red-50 hover:bg-red-100 hover:border-red-400 text-red-900';
+    if (pathType === 'hesitate') return 'border-amber-300 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 text-amber-900';
+    if (pathType === 'correct') return 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 text-emerald-900';
+    return 'border-[#141414]/20 bg-white hover:bg-gray-50';
+  };
+  /* 选项字母方块着色 */
+  const optionKeyColor = (pathType: string) => {
+    if (pathType === 'scam') return 'bg-red-500';
+    if (pathType === 'hesitate') return 'bg-amber-500';
+    if (pathType === 'correct') return 'bg-emerald-600';
+    return 'bg-[#141414]';
   };
 
   const isLocal = (m: TheaterMessage) => !hasKey && m.role === 'dm';
@@ -319,11 +327,13 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
                       key={opt.key}
                       disabled={isResponding}
                       onClick={() => handleOption(m, opt)}
-                      className={`w-full text-left p-3 border bg-white transition-colors flex items-start gap-3 disabled:opacity-50 ${optionColor(
+                      className={`w-full text-left p-3 border transition-colors flex items-start gap-3 disabled:opacity-50 ${optionColor(
                         opt.pathType
                       )}`}
                     >
-                      <span className="w-6 h-6 bg-[#141414] text-white text-sm font-mono flex items-center justify-center shrink-0">
+                      <span className={`w-6 h-6 text-white text-sm font-mono flex items-center justify-center shrink-0 rounded ${optionKeyColor(
+                        opt.pathType
+                      )}`}>
                         {opt.key}
                       </span>
                       <span className="text-base leading-6">{opt.text}</span>
