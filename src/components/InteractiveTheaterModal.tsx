@@ -286,7 +286,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
 
               {/* 玩家可见正文 */}
               <div
-                className={`p-3.5 max-w-[88%] text-sm leading-relaxed whitespace-pre-wrap ${
+                className={`p-4 max-w-[88%] text-base leading-7 whitespace-pre-wrap ${
                   m.role === 'user'
                     ? 'bg-[#141414] text-white border border-[#141414] shadow-[2px_2px_0px_#FF4D00]'
                     : 'bg-[#EEECE6] text-[#141414] border border-[#141414] shadow-[2px_2px_0px_#141414]'
@@ -303,8 +303,8 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
 
               {/* 主持人手册(选完后揭示) */}
               {m.manual && m.chosen && (
-                <div className="mt-2 p-3.5 max-w-[88%] text-xs leading-relaxed whitespace-pre-wrap bg-[#141414] text-white border border-[#141414] shadow-[2px_2px_0px_#FF4D00]">
-                  <span className="font-mono font-bold text-[#FF4D00] block mb-1">
+                <div className="mt-2 p-4 max-w-[88%] text-sm leading-6 whitespace-pre-wrap bg-[#141414] text-white border border-[#141414] shadow-[2px_2px_0px_#FF4D00]">
+                  <span className="font-mono font-bold text-[#FF4D00] block mb-1 text-xs">
                     🔓 主持人手册揭晓
                   </span>
                   {m.manual}
@@ -323,10 +323,10 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
                         opt.pathType
                       )}`}
                     >
-                      <span className="w-6 h-6 bg-[#141414] text-white text-xs font-mono flex items-center justify-center shrink-0">
+                      <span className="w-6 h-6 bg-[#141414] text-white text-sm font-mono flex items-center justify-center shrink-0">
                         {opt.key}
                       </span>
-                      <span className="text-sm">{opt.text}</span>
+                      <span className="text-base leading-6">{opt.text}</span>
                     </button>
                   ))}
                 </div>
