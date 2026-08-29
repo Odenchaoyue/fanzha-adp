@@ -21,7 +21,8 @@ export interface ADPOptions {
   onDone?: (fullText: string) => void; // 流结束
   onError?: (msg: string) => void;     // 出错
   onObject?: (obj: any) => void;       // 工作流结束节点 output type=obj 时回调(返回结构化对象)
-  timeoutMs?: number;                  // 超时(毫秒),默认 90000;ADP 多 Agent 工作流较慢,给足时间
+  timeoutMs?: number;                  // 超时(毫秒),默认 180000;ADP 多 Agent 工作流较慢,给足时间
+  signal?: AbortSignal;                 // 外部取消信号(如换场景/关模态框时 abort)
 }
 
 function uid(): string {
@@ -108,9 +109,14 @@ export async function sendToADP(opts: ADPOptions): Promise<string> {
   };
 
   let full = "";
-  const timeoutMs = opts.timeoutMs ?? 90000;
+  const timeoutMs = opts.timeoutMs ?? 180000;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // 外部 signal → 联动内部 controller(如换场景/关弹窗时取消)
+  if (opts.signal) {
+    if (opts.signal.aborted) controller.abort();
+    else opts.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
   try {
     const res = await fetch("/proxy/adp", {
       method: "POST",
@@ -155,10 +161,19 @@ export async function sendToADP(opts: ADPOptions): Promise<string> {
           if (obj) opts.onObject?.(obj);
           const text = extractEventText(evt);
           if (text) {
-            // 整包与流式混发的去重: 整包内容已包含在累计文本里则跳过
-            if (full && full.includes(text) && text.length <= full.length) continue;
-            full += text;
-            opts.onDelta?.(text);
+            // 去重策略(兼容三种 ADP 发送模式):
+            // 1) 整包模式: text 是 full 的子串 → 跳过
+            // 2) 累积式 delta: text 包含 full(每次发的是完整内容) → 用 text 替换 full
+            // 3) 增量式 delta: text 是纯新增片段 → 追加
+            if (full && text.length <= full.length && full.includes(text)) continue;
+            if (full && text.length > full.length && text.startsWith(full)) {
+              const delta = text.slice(full.length);
+              full = text;
+              opts.onDelta?.(delta);
+            } else {
+              full += text;
+              opts.onDelta?.(text);
+            }
           }
         } catch (e: any) {
           opts.onError?.(e.message || "ADP 事件解析失败");

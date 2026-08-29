@@ -122,11 +122,13 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     setIsAiResponding(true);
 
     let finalText = '';
-    await sendToADP({
+    let errorMsg = '';
+    const result = await sendToADP({
       text,
       appKey: config.appKey,
       visitorId: config.visitorId,
       conversationId: conversationIdRef.current,
+      timeoutMs: 180000,
       onDelta: (chunk) => {
         finalText += chunk;
         // 流式更新气泡
@@ -135,12 +137,27 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
         );
       },
       onError: (msg) => {
+        errorMsg = msg;
         console.error('ADP error:', msg);
       },
     });
 
+    // 兜底: onDelta 漏收(整包模式)时用返回值
+    if (!finalText && result) {
+      finalText = result;
+      setConversation((prev) =>
+        prev.map((t) => (t.id === turnId ? { ...t, text: finalText } : t))
+      );
+    }
+
     if (!finalText) {
-      finalText = '(对方沉默了几秒,电话那头传来杂音……请继续回应或挂断)';
+      finalText = errorMsg
+        ? `⚠️ 通话异常: ${errorMsg}`
+        : '(对方沉默了几秒,电话那头传来杂音……请继续回应或挂断)';
+      setConversation((prev) => prev.map((t) => (t.id === turnId ? { ...t, text: finalText } : t)));
+    } else if (errorMsg) {
+      // 有内容但出错(如超时截断),追加提示
+      finalText += '\n\n⚠️ (回复被中断,可能不完整)';
       setConversation((prev) => prev.map((t) => (t.id === turnId ? { ...t, text: finalText } : t)));
     }
 

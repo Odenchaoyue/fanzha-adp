@@ -75,6 +75,8 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
   const lastSceneRef = useRef<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const initiatedRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   // 自动滚动
   useEffect(() => {
@@ -83,16 +85,31 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     }
   }, [messages, isResponding]);
 
+  // 卸载时 abort 正在进行的请求(关模态框/换模块时)
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
+
   /* 流式发一轮给 ADP,渲染为 DM 气泡 */
   const streamDmReply = async (text: string) => {
+    // abort 之前的请求(防并发)
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+
     const turnId = `dm-${Date.now()}`;
     setMessages((prev) => [...prev, { id: turnId, role: 'dm', visible: '', chosen: false }]);
     setIsResponding(true);
     setGenError(null);
     let buf = '';
+    let wasAborted = false;
+    let wasTimeout = false;
     try {
       await runTheaterChat(text, config, {
         conversationId: convIdRef.current,
+        signal: ac.signal,
         onDelta: (c) => {
           buf += c;
           // 流式显示前先清洗噪声(Content载荷/事件壳/路由口播),再只取【玩家可见】
@@ -103,8 +120,29 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
             prev.map((m) => (m.id === turnId ? { ...m, visible: live } : m))
           );
         },
-        onError: (msg) => setGenError(msg),
+        onError: (msg) => {
+          if (ac.signal.aborted) {
+            wasAborted = true;
+          } else if (msg.includes('超时')) {
+            wasTimeout = true;
+            setGenError(msg);
+          } else {
+            setGenError(msg);
+          }
+        },
       });
+      // 如果被 abort 或超时,不解析、不写 lastSceneRef,标记中断
+      if (wasAborted) return;
+      if (wasTimeout) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === turnId
+              ? { ...m, visible: m.visible || '⚠️ 本轮生成中断(超时),请重试或换场景。' }
+              : m
+          )
+        );
+        return;
+      }
       const turn = parseTheaterTurn(buf);
       // 记录本轮 DM 正文作为"上一轮场景摘要",供下一轮请求拼上下文
       if (turn.visible && !turn.routingError) {
@@ -134,15 +172,18 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
         setGenError(turn.routingError);
       }
     } catch (e: any) {
+      if (ac.signal.aborted) return; // 静默取消
       setGenError(e?.message || '剧本生成失败');
     } finally {
+      if (abortRef.current === ac) abortRef.current = null;
       setIsResponding(false);
     }
   };
 
-  /* 开新一场(换场景/重开) */
+  /* 开新一场(换场景: 新会话, round=0, 清空消息) */
   const startScene = (sc: string) => {
     if (!hasKey) return;
+    abortRef.current?.abort(); // 先中断正在进行的请求
     convIdRef.current = newConversationId('theater');
     roundRef.current = 0;
     lastSceneRef.current = '';
@@ -152,11 +193,20 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     streamDmReply(buildTheaterRequest({ round: 0, scene: sc }));
   };
 
+  /* 升级回合(再来一轮: 同一会话, round+1, 不清空消息, 不带 choice 让 ADP 自行升级) */
+  const continueScene = () => {
+    if (!hasKey || isResponding) return;
+    roundRef.current += 1;
+    setGenError(null);
+    streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current }));
+  };
+
   /* 开场: 有 AppKey 自动开一场;无 Key 展示本地静态剧本 */
   useEffect(() => {
-    if (hasKey) {
+    if (hasKey && !initiatedRef.current) {
+      initiatedRef.current = true;
       startScene(SCENES[0]);
-    } else {
+    } else if (!hasKey) {
       setMessages([
         {
           id: 'local-0',
@@ -366,10 +416,17 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
           <div className="flex flex-wrap gap-2 mb-2">
             <button
               disabled={!hasKey || isResponding}
-              onClick={() => startScene(scene)}
+              onClick={() => continueScene()}
               className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               再来一轮
+            </button>
+            <button
+              disabled={!hasKey || isResponding}
+              onClick={() => startScene(scene)}
+              className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              重新开始
             </button>
             <button
               disabled={!hasKey || isResponding}

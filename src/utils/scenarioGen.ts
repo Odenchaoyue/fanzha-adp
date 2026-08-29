@@ -158,17 +158,14 @@ export function parseTheaterTurn(raw: string): TheaterTurn {
     ? buildRoutingErrorHint(raw)
     : undefined;
 
-  // 过滤掉 Thought/思考过程(ADP 有时会返回内部推理)
-  const thoughtMatch = raw.match(/【?Thought?】?\s*[\s\S]*?(?=【|\n\n|$)/i);
-  if (thoughtMatch && thoughtMatch[0].length < raw.length * 0.8) {
-    // 只在 Thought 占比较小时才移除(避免误删正文)
-  }
+  // 过滤掉 Thought/思考过程(ADP 有时会返回内部推理) — stripJsonFence 已处理,此处不再重复
 
   // 场景轮用 '---' 分隔【玩家可见】与【主持人手册】
+  // 注意:必须在 cleaned 文本里找索引,也在 cleaned 里切(不能混用 raw 和 cleaned 的索引)
   const sep = visible.indexOf('---');
-  if (sep !== -1 && raw.includes('主持人手册')) {
-    visible = raw.slice(0, sep);
-    manual = raw.slice(sep + 3);
+  if (sep !== -1 && visible.includes('主持人手册')) {
+    manual = visible.slice(sep + 3).trim();
+    visible = visible.slice(0, sep).trim();
   }
   const cleanVisible = stripJsonFence(visible);
   const cleanManual = manual ? stripJsonFence(manual) : undefined;
@@ -249,6 +246,10 @@ export function buildTheaterRequest(req: TheaterRequest): string {
   if (req.round === 0) {
     return `[round=0] 场景:${req.scene || ''}。请生成开场场景 + A/B/C 选项。`;
   }
+  // 纯升级(无选择无自由输入,如"再来一轮"按钮触发)
+  if (req.round > 0 && !req.choice && !req.freeText) {
+    return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。请升级骗子话术,给出新一轮开场 + 陷阱 + 新 A/B/C 选项。`;
+  }
   if (req.choice) {
     return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。用户选择了「${req.choice}」。请给出选择后果 + 升级场景 + 新 A/B/C 选项。`;
   }
@@ -265,6 +266,7 @@ export async function runTheaterChat(
     onDelta?: (chunk: string) => void;
     onDone?: (full: string) => void;
     onError?: (msg: string) => void;
+    signal?: AbortSignal;
   }
 ): Promise<string> {
   if (!config.appKey || !config.appKey.trim()) {
@@ -278,10 +280,11 @@ export async function runTheaterChat(
     appKey: config.appKey,
     visitorId: config.visitorId || 'fanzha-web',
     conversationId: handlers.conversationId,
-    timeoutMs: 90000,
+    timeoutMs: 180000,
     onDelta: handlers.onDelta,
     onDone: handlers.onDone,
     onError: handlers.onError,
+    signal: handlers.signal,
   });
 }
 
@@ -397,7 +400,7 @@ export async function generateScenario(
       appKey: config.appKey,
       visitorId: config.visitorId || 'fanzha-web',
       conversationId: newConversationId('call'),
-      timeoutMs: 90000,
+      timeoutMs: 180000,
       onObject: (o) => {
         capturedObj = o;
       },

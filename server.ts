@@ -112,9 +112,10 @@ for (const [prefix, cfg] of Object.entries(PROXIES)) {
     });
 
     // 上游(ADP)超时兜底: 慢工作流不要无限挂起,转为干净的 504
-    proxyReq.setTimeout(110000);
+    // 200s > 前端 180s,确保前端先超时(前端超时有 UI 提示,服务端 504 是裸 JSON 不好处理)
+    proxyReq.setTimeout(200000);
     proxyReq.on("timeout", () => {
-      console.error("Proxy upstream timeout (ADP 无响应 >110s)");
+      console.error("Proxy upstream timeout (ADP 无响应 >200s)");
       proxyReq.destroy();
       if (!res.headersSent) {
         res.status(504).json({ code: -1, error: "ADP 上游超时,请稍后重试" });
