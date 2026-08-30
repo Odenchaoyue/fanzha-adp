@@ -132,6 +132,25 @@ export function cleanCallText(s: string): string {
   if (!s) return '';
   let t = s;
 
+  // 0) 如果有 {"Content":"...","Thought":"..."} 载荷,直接提取 Content
+  //    ADP 有时发 JSON 对象格式(Content+Thought 已分开),有时发纯文本(混在一起)
+  //    先试 JSON 格式,找到了直接返回 Content 值(Thought 天然丢弃)
+  const contentRe = /\{\s*"Content"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"\s*[,}]/;
+  const cm = t.match(contentRe);
+  if (cm) {
+    try {
+      const contentValue = JSON.parse('"' + cm[1] + '"');
+      if (contentValue && contentValue.trim().length >= 20) {
+        return contentValue
+          .replace(/^#{1,6}\s*/gm, '')
+          .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+          .trim();
+      }
+    } catch {
+      // 流式中 JSON 转义不完整 → 回退到下方纯文本处理
+    }
+  }
+
   // 1) 分界标记快速跳过(第一次回复通常有)
   const MARKER = '好的！智能体马上启动！';
   const idx = t.lastIndexOf(MARKER);
