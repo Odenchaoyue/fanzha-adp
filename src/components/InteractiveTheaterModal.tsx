@@ -20,6 +20,18 @@ interface InteractiveTheaterModalProps {
 /* 设定项 */
 const SCENES = ['刷单返利', '校园贷', '冒充老师', '求职诈骗', '快递理赔', 'AI换脸诈骗'];
 
+/* 受众身份(可选,填了让剧本更精准) */
+const AUDIENCE_OPTIONS = [
+  { key: '', label: '不指定' },
+  { key: '大学生', label: '大学生' },
+  { key: '研究生', label: '研究生' },
+  { key: '刚毕业/求职', label: '刚毕业/求职' },
+  { key: '上班族', label: '上班族' },
+  { key: '中老年/退休', label: '中老年/退休' },
+  { key: '自由职业', label: '自由职业' },
+  { key: '全职妈妈/爸爸', label: '全职妈妈/爸爸' },
+];
+
 /* 本地兜底(无 AppKey 时展示一段静态剧本,保持页面可用) */
 const LOCAL_SAMPLE = {
   visible:
@@ -69,6 +81,12 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
   const [genError, setGenError] = useState<string | null>(null);
 
   const [scene, setScene] = useState(SCENES[0]);
+  const [showAudienceForm, setShowAudienceForm] = useState(false);
+  const [audience, setAudience] = useState<string>('');
+  const [major, setMajor] = useState<string>('');
+
+  // 切片:把 audience/major 拼成调用 buildTheaterRequest 的辅助对象
+  const reqContext = { audience: audience || undefined, major: major || undefined };
 
   const convIdRef = useRef<string>(newConversationId('theater'));
   const roundRef = useRef<number>(0);
@@ -190,7 +208,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     setMessages([]);
     setGenError(null);
     setScene(sc);
-    streamDmReply(buildTheaterRequest({ round: 0, scene: sc }));
+    streamDmReply(buildTheaterRequest({ round: 0, scene: sc, ...reqContext }));
   };
 
   /* 升级回合(再来一轮: 同一会话, round+1, 不清空消息, 不带 choice 让 ADP 自行升级) */
@@ -198,7 +216,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     if (!hasKey || isResponding) return;
     roundRef.current += 1;
     setGenError(null);
-    streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current }));
+    streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, ...reqContext }));
   };
 
   /* 开场: 有 AppKey 自动开一场;无 Key 展示本地静态剧本 */
@@ -227,7 +245,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     if (inputRef.current) inputRef.current.value = '';
     if (!hasKey) return;
     setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', visible: t }]);
-    streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, freeText: t }));
+    streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, freeText: t, ...reqContext }));
   };
 
   /* 用户点选 A/B/C */
@@ -248,6 +266,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
         round: roundRef.current,
         lastScene: lastSceneRef.current,
         choice: `${opt.key} ${opt.text}`,
+        ...reqContext,
       })
     );
   };
@@ -315,6 +334,59 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
               {s}
             </button>
           ))}
+        </div>
+
+        {/* 受训者画像(可选,让剧本更精准;不填也不影响使用) */}
+        <div className="bg-[#FAF9F6] border-b border-[#141414]/15 px-4 py-2 text-xs font-mono">
+          <button
+            onClick={() => setShowAudienceForm(!showAudienceForm)}
+            className="flex items-center gap-2 text-[#141414]/70 hover:text-[#FF4D00] transition-colors w-full"
+            type="button"
+          >
+            <span className="material-symbols-outlined text-base">
+              {showAudienceForm ? 'expand_less' : 'expand_more'}
+            </span>
+            <span className="uppercase font-bold">受训者画像(可选)</span>
+            {audience || major ? (
+              <span className="bg-[#FF4D00]/10 text-[#FF4D00] px-2 py-0.5 border border-[#FF4D00]/40 text-[11px]">
+                ✓ {audience || '未指定'}{major ? `·${major}` : ''}
+              </span>
+            ) : (
+              <span className="text-[#141414]/50 text-[11px]">点击设定,让剧本更贴合你的身份</span>
+            )}
+          </button>
+          {showAudienceForm && (
+            <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2.5 pb-1">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase text-[#141414]/50 font-bold tracking-wider">身份类型</label>
+                <select
+                  value={audience}
+                  onChange={(e) => setAudience(e.target.value)}
+                  disabled={isResponding}
+                  className="bg-white border border-[#141414]/40 px-3 py-1.5 text-sm focus:border-[#FF4D00] focus:outline-none disabled:opacity-50 text-[#141414]"
+                >
+                  {AUDIENCE_OPTIONS.map((o) => (
+                    <option key={o.key} value={o.key}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] uppercase text-[#141414]/50 font-bold tracking-wider">专业 / 职业(可选)</label>
+                <input
+                  type="text"
+                  value={major}
+                  onChange={(e) => setMajor(e.target.value)}
+                  placeholder="如:计算机、会计、医学、销售…"
+                  maxLength={20}
+                  disabled={isResponding}
+                  className="bg-white border border-[#141414]/40 px-3 py-1.5 text-sm focus:border-[#FF4D00] focus:outline-none disabled:opacity-50 text-[#141414] placeholder:text-[#141414]/30"
+                />
+              </div>
+              <div className="col-span-1 sm:col-span-2 text-[10px] text-[#141414]/45 leading-relaxed">
+                填了会随每轮请求发给 ADP,主控 agent 看到就不会再反问身份;不填也能正常演练。
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 剧本对话区 */}
@@ -442,7 +514,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
               disabled={!hasKey || isResponding}
               onClick={() => {
                 setMessages((prev) => [...prev, { id: `user-${Date.now()}`, role: 'user', visible: '复盘结束' }]);
-                streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, review: true }));
+                streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, review: true, ...reqContext }));
               }}
               className="text-xs font-mono px-3 py-1.5 border border-[#141414] bg-white hover:bg-[#FF4D00] hover:text-white hover:border-[#FF4D00] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >

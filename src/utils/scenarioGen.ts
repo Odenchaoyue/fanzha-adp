@@ -236,25 +236,37 @@ export interface TheaterRequest {
   choice?: string;      // 用户选的选项文本(如 "A 相信对方")
   freeText?: string;    // 用户自由输入正文
   review?: boolean;     // 复盘轮标记
+  audience?: string;    // 受众身份(大学生/上班族/中老年/其他),可选
+  major?: string;       // 专业/职业(如 计算机/会计/医学),可选
+}
+
+/** 拼接受众描述(身份 + 专业);为空返回空串 */
+function buildAudiencePart(req: TheaterRequest): string {
+  if (!req.audience) return '';
+  const major = req.major ? `(${req.major})` : '';
+  return `受众:${req.audience}${major}。`;
 }
 
 /** 把结构化请求拼成自然语言上下文 */
 export function buildTheaterRequest(req: TheaterRequest): string {
+  const audiencePart = buildAudiencePart(req);
   if (req.review) {
-    return `[round=${req.round}] 演练结束,请生成复盘报告。对话摘要:${req.lastScene || '已完成多轮演练'}`;
+    return `[round=${req.round}] 演练结束,请生成复盘报告。${audiencePart}对话摘要:${req.lastScene || '已完成多轮演练'}`;
   }
   if (req.round === 0) {
-    return `[round=0] 场景:${req.scene || ''}。请生成开场场景 + A/B/C 选项。`;
+    // 受众信息已附上时,显式告诉主控/剧本 agent 不要反问身份
+    const noAsk = audiencePart ? '请直接生成开场,不要反问身份。' : '';
+    return `[round=0] 场景:${req.scene || ''}。${audiencePart}请生成开场场景 + A/B/C 选项。${noAsk}`.replace(/\s+/g, ' ').trim();
   }
   // 纯升级(无选择无自由输入,如"再来一轮"按钮触发)
   if (req.round > 0 && !req.choice && !req.freeText) {
-    return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。请升级骗子话术,给出新一轮开场 + 陷阱 + 新 A/B/C 选项。`;
+    return `[round=${req.round}] ${audiencePart}上一轮场景:${req.lastScene || ''}。请升级骗子话术,给出新一轮开场 + 陷阱 + 新 A/B/C 选项。`.replace(/\s+/g, ' ').trim();
   }
   if (req.choice) {
-    return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。用户选择了「${req.choice}」。请给出选择后果 + 升级场景 + 新 A/B/C 选项。`;
+    return `[round=${req.round}] ${audiencePart}上一轮场景:${req.lastScene || ''}。用户选择了「${req.choice}」。请给出选择后果 + 升级场景 + 新 A/B/C 选项。`.replace(/\s+/g, ' ').trim();
   }
   // 自由输入
-  return `[round=${req.round}] 上一轮场景:${req.lastScene || ''}。用户说:「${req.freeText || ''}」。请继续推进骗局并给出新的 A/B/C 选项。`;
+  return `[round=${req.round}] ${audiencePart}上一轮场景:${req.lastScene || ''}。用户说:「${req.freeText || ''}」。请继续推进骗局并给出新的 A/B/C 选项。`.replace(/\s+/g, ' ').trim();
 }
 
 /** 发一条消息给 ADP 工作流(互动剧场),返回完整文本;支持流式回调 */
