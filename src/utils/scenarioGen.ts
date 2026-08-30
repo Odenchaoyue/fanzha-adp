@@ -23,10 +23,11 @@ function stripJsonFence(s: string): string {
     .replace(/```json\s*[\s\S]*?```/gi, '')
     .replace(/```\s*[\s\S]*?```/gi, '')
     .trim();
-  // 过滤 ADP Thought 内部推理块(有时会混入流式文本)
-  t = t.replace(/【?Thought?】?\s*\{[^}]*\}[\s\S]*?(?=(?:📋|🎭|🔀|⚠️|💡|📊|🧩|🛡️|📞|---|$))/gi, '').trim();
-  // 过滤 \n"Thought":\n{...} 格式的思考过程
-  t = t.replace(/\\n*"Thought"[\s\S]*?\\n*(?=(?:📋|🎭|🔀|⚠️|💡|📊|🧩|🛡️|📞|---|$))/gi, '').trim();
+  // 过滤 "Thought":"..." 字段(ADP 多 agent 工作流会把工具调用链作为字符串化 JSON 放这)
+  // 不依赖 emoji lookahead,直接匹配 "Thought":"<字符串值>" 到字段结束
+  t = t.replace(/"Thought"\s*:\s*"(?:[^"\\]|\\[\s\S])*"/g, '').trim();
+  // 过滤 【Thought】{...} 块(老格式)
+  t = t.replace(/【?Thought?】?\s*\{[^{}]*\}/gi, '').trim();
   return t;
 }
 
@@ -79,21 +80,31 @@ export function isMainAgentRoutingNoise(text: string): boolean {
 export function cleanTheaterText(s: string): string {
   if (!s) return '';
   let t = s;
-  // 抽取 {"Content":"..."} 载荷
-  const blobs: string[] = [];
-  const re = /\{\s*"Content"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"\s*\}/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(t)) !== null) {
+
+  // 1) 优先:找 {"Content":"...","Thought":"..."} 载荷
+  //    ADP 多 agent 工作流会把"思考→工具调用→生成正文"整个过程作为纯文本 delta 发出来,
+  //    真正的剧本正文被包在 {"Content":"..."} 里,前面是思考文本,后面是 Thought 字段(字符串化JSON)
+  //    正则要求 Content 值后跟 , 或 }(之前只匹配 } 会漏掉 {"Content":"...","Thought":"..."} 格式)
+  const contentRe = /\{\s*"Content"\s*:\s*"((?:[^"\\]|\\[\s\S])*)"\s*[,}]/;
+  const cm = t.match(contentRe);
+  if (cm) {
     try {
-      blobs.push(JSON.parse('"' + m[1] + '"'));
+      const contentValue = JSON.parse('"' + cm[1] + '"');
+      if (contentValue && contentValue.trim().length >= 40) {
+        // 找到 Content 载荷 → 只返回 Content 值,丢弃前面的思考文本和后面的 Thought 字段
+        return contentValue
+          .replace(/^#{1,6}\s*/gm, '')
+          .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+          .trim();
+      }
     } catch {
-      blobs.push(m[1]);
+      // 流式中 JSON 转义不完整 → 回退到下方兜底
     }
   }
-  if (blobs.length > 0) {
-    const joined = blobs.join('');
-    if (joined.trim().length >= 40) t = joined;
-  }
+
+  // 2) 兜底:流式中 Content 载荷不完整时,删除已知的噪声字段
+  // 删除 "Thought":"..." 字段(字符串化 JSON,可能很长)
+  t = t.replace(/"Thought"\s*:\s*"(?:[^"\\]|\\[\s\S])*"/g, '');
   // 去残留事件壳
   t = t.replace(/\{\s*"Type"\s*:\s*"[^"]*"\s*\}/g, '');
   t = t.replace(/\{\s*"Answer"\s*:\s*"[^"]*"\s*\}/g, '');
