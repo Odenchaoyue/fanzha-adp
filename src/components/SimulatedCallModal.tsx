@@ -3,6 +3,7 @@ import { CallScenario, ConversationTurn, ForensicReport, AppConfig } from '../ty
 import { CALL_SCENARIOS } from '../data/scenarios';
 import { playVoiceSample, playPhoneRingSound, stopSpeaking } from '../utils/audioHelper';
 import { sendToADP, newConversationId } from '../utils/adpClient';
+import { cleanCallText } from '../utils/scenarioGen';
 import { WavRecorder, recognizeSpeech } from '../utils/recorder';
 import { scoreRisk, wordsToTactics, generateLocalReport } from '../utils/riskEngine';
 
@@ -131,9 +132,10 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
       timeoutMs: 180000,
       onDelta: (chunk) => {
         finalText += chunk;
-        // 流式更新气泡
+        // 清洗 ADP 噪声(思考过程/事件壳/分界标记)后再显示
+        const display = cleanCallText(finalText);
         setConversation((prev) =>
-          prev.map((t) => (t.id === turnId ? { ...t, text: finalText } : t))
+          prev.map((t) => (t.id === turnId ? { ...t, text: display } : t))
         );
       },
       onError: (msg) => {
@@ -145,6 +147,11 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     // 兜底: onDelta 漏收(整包模式)时用返回值
     if (!finalText && result) {
       finalText = result;
+    }
+
+    // 最终清洗(确保 finalText 是纯正文,用于计分/播报)
+    finalText = cleanCallText(finalText);
+    if (finalText) {
       setConversation((prev) =>
         prev.map((t) => (t.id === turnId ? { ...t, text: finalText } : t))
       );

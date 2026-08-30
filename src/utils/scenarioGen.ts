@@ -108,9 +108,54 @@ export function cleanTheaterText(s: string): string {
   // 去残留事件壳
   t = t.replace(/\{\s*"Type"\s*:\s*"[^"]*"\s*\}/g, '');
   t = t.replace(/\{\s*"Answer"\s*:\s*"[^"]*"\s*\}/g, '');
-  t = t.replace(/\{\s*"Type"\s*:\s*"custom_params"[\s\S]*?\}\s*\}?(?=\n|$)/g, '');
+  t = t.replace(/\{\s*"Type"\s*:\s*"custom_params"[\s\S]*$/g, ''); // 删到结尾(结束事件)
   // 去 markdown 标记
   t = t.replace(/^#{1,6}\s*/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
+  return t.trim();
+}
+
+/**
+ * 清洗模拟来电(SimulatedCall)的 ADP 流文本:
+ * - ADP 主控 agent 会把"思考→调知识库→再思考→生成正文"整个过程作为纯文本 delta 发出来
+ * - 真正的骗子开场白在"好的！智能体马上启动！"分界标记之后
+ * - 前面是思考过程,后面是 {"Type":"custom_params",...} 结束事件壳
+ *
+ * 策略:
+ * 1) 如果有"好的！智能体马上启动！"分界标记,取它之后的内容(丢弃前面的思考过程)
+ * 2) 删除事件壳({"Type":"text"} / {"Type":"custom_params",...} / {"Answer":"..."})
+ * 3) 删除残留的思考特征文本(分界标记失效时的兜底)
+ * 4) 去 markdown
+ */
+export function cleanCallText(s: string): string {
+  if (!s) return '';
+  let t = s;
+
+  // 1) 分界标记: ADP 主控 agent 思考结束后会发"好的！智能体马上启动！"
+  //    用 lastIndexOf 避免正文里也出现这个标记(取最后一次出现的位置)
+  const MARKER = '好的！智能体马上启动！';
+  const idx = t.lastIndexOf(MARKER);
+  if (idx !== -1) {
+    t = t.slice(idx + MARKER.length).trim();
+  }
+
+  // 2) 删除事件壳(ADP SSE 事件被作为文本 delta 发出来的情况)
+  t = t.replace(/\{\s*"Type"\s*:\s*"[^"]*"\s*\}/g, '');
+  t = t.replace(/\{\s*"Answer"\s*:\s*"[^"]*"\s*\}/g, '');
+  t = t.replace(/\{\s*"Type"\s*:\s*"custom_params"[\s\S]*$/g, ''); // 删到结尾
+  t = t.replace(/"Thought"\s*:\s*"(?:[^"\\]|\\[\s\S])*"/g, '');
+
+  // 3) 删除残留的思考特征文本(分界标记失效时的兜底)
+  if (idx === -1) {
+    t = t.replace(/根据用户请求[^。]*。/g, '');
+    t = t.replace(/按照工作流程[^。]*。/g, '');
+    t = t.replace(/我需要先[^。]*。/g, '');
+    t = t.replace(/让我(?:先)?检索[^。]*。/g, '');
+    t = t.replace(/知识库中[^。]*。/g, '');
+  }
+
+  // 4) 去 markdown
+  t = t.replace(/^#{1,6}\s*/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
+
   return t.trim();
 }
 
