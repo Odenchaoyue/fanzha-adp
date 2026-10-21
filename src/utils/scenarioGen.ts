@@ -95,6 +95,7 @@ export function cleanTheaterText(s: string): string {
         return contentValue
           .replace(/^#{1,6}\s*/gm, '')
           .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+          .replace(/\[(?:round|call|turn)=\d+\]\s*/g, '')
           .trim();
       }
     } catch {
@@ -111,6 +112,8 @@ export function cleanTheaterText(s: string): string {
   t = t.replace(/\{\s*"Type"\s*:\s*"custom_params"[\s\S]*$/g, ''); // 删到结尾(结束事件)
   // 去 markdown 标记
   t = t.replace(/^#{1,6}\s*/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
+  // 去掉请求协议标签(模型有时会把它复述出来,如 [round=0])
+  t = t.replace(/\[(?:round|call|turn)=\d+\]\s*/g, '');
   return t.trim();
 }
 
@@ -171,6 +174,7 @@ export function cleanCallText(s: string): string {
         return contentValue
           .replace(/^#{1,6}\s*/gm, '')
           .replace(/\*\*([^*\n]+)\*\*/g, '$1')
+          .replace(/\[(?:round|call|turn)=\d+\]\s*/g, '')
           .trim();
       }
     } catch {
@@ -218,6 +222,8 @@ export function cleanCallText(s: string): string {
 
   // 5) 去 markdown
   t = t.replace(/^#{1,6}\s*/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
+  // 去掉请求协议标签(模型有时会复述 [call=1][turn=N])
+  t = t.replace(/\[(?:round|call|turn)=\d+\]\s*/g, '');
 
   return t.trim();
 }
@@ -240,30 +246,52 @@ export interface TheaterTurn {
 }
 
 /**
+ * 兼容两种选项格式:
+ *   A. 文本 / A、文本 / A：文本
+ *   🅰️ 选项 A：文本 / 选项 A：文本
+ */
+const OPTION_LINE_RE =
+  /^\s*(?:[\u{1F000}-\u{1FAFF}☀-➿️⃣\s]*)?(?:选项\s*)?([A-C])\s*[.、：:]\s*(.+)$/gmu;
+
+/** 根据选项文字推断红/黄/绿(不再假设 A=骗、B=犹豫、C=正确) */
+function inferPathType(text: string, key: string): string {
+  if (/拒绝|举报|报警|拉黑|不感兴趣|不信|挂断|退出/.test(text)) return 'correct';
+  if (/怀疑|考虑|观望|犹豫|确认|核实|追问|等等/.test(text)) return 'hesitate';
+  if (/相信|按指示|继续|配合|试试|转账|加群|接单/.test(text)) return 'scam';
+  return key === 'C' ? 'correct' : key === 'B' ? 'hesitate' : 'scam';
+}
+
+/**
  * 如果正文末尾自带 A/B/C 选项,而前端已经会渲染可点击按钮,
  * 就把正文里的选项段裁掉,避免同一组选项出现两遍、破坏沉浸感。
  */
 function stripOptionsFromVisible(text: string, options?: TheaterOption[]): string {
   if (!text || !options || options.length === 0) return text;
-  const m = text.match(/^\s*A\s*[.、：:]\s*/m);
+  const firstRe =
+    /^\s*(?:[\u{1F000}-\u{1FAFF}☀-➿️⃣\s]*)?(?:选项\s*)?([A-C])\s*[.、：:]\s*/mu;
+  const m = text.match(firstRe);
   if (!m || m.index === undefined || m.index <= 0) return text;
   const tail = text.slice(m.index);
-  const count = (tail.match(/^\s*[A-C]\s*[.、：:]\s*/gm) || []).length;
+  const count = (tail.match(OPTION_LINE_RE) || []).length;
   if (count < 2) return text;
-  return text.slice(0, m.index).trim();
+  return text
+    .slice(0, m.index)
+    .replace(/\s*-{3,}\s*(?:[^\n]*请选择[^\n]*)?$/u, '')
+    .trim();
 }
 
 /** 从纯文本格式中正则提取 A/B/C 选项(无 JSON 信封时的兜底) */
 function parseOptionsFromText(text: string): TheaterOption[] | undefined {
-  // 匹配 "A. xxx" / "A、xxx" / "A：xxx" 等格式
-  const re = /^\s*([A-C])[.、：:]\s*(.+)$/gm;
   const opts: TheaterOption[] = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
+  OPTION_LINE_RE.lastIndex = 0;
+  while ((m = OPTION_LINE_RE.exec(text)) !== null) {
+    const key = m[1];
+    const optionText = m[2].trim();
     opts.push({
-      key: m[1],
-      text: m[2].trim(),
-      pathType: m[1] === 'C' ? 'correct' : m[1] === 'B' ? 'hesitate' : 'scam',
+      key,
+      text: optionText,
+      pathType: inferPathType(optionText, key),
     });
   }
   return opts.length > 0 ? opts : undefined;
@@ -296,13 +324,31 @@ function collapseDuplicates(s: string): string {
   return t.slice(cut).trim().replace(/^好的[，,、!！]?\s*/, '').trim();
 }
 
+/**
+ * 折叠"同一段话被输出两遍"的情况(常见于开场: 第一遍少一个句末标点,第二遍完整)。
+ * 找到第二遍的起点,如果后半段以第一遍全文开头,就只保留后半段(完整版)。
+ */
+function collapseRepeatedPrefix(s: string): string {
+  const t = s.trim();
+  if (t.length < 60) return t;
+  const head = t.slice(0, Math.min(12, t.length));
+  for (let start = 1; start < t.length - 20; start++) {
+    const rest = t.slice(start);
+    if (!rest.startsWith(head)) continue;
+    const first = t.slice(0, start).trim();
+    if (first.length < 20) continue;
+    if (rest.startsWith(first)) return rest.trim();
+  }
+  return t;
+}
+
 /** 解析 ADP 一轮返回:先清洗流噪声,再拆分可见/手册、抽取 JSON 信封;无信封则从文本正则抠选项 */
 export function parseTheaterTurn(raw: string): TheaterTurn {
   const source = collapseDuplicates(raw); // 先折叠重复交付,避免整段剧本渲染两遍
   const env = extractJson(source);
   // 清洗:抽 Content 载荷、去事件壳/路由口播/Thought 噪声
   const cleaned = cleanTheaterText(source);
-  let visible = cleaned;
+  let visible = collapseRepeatedPrefix(cleaned);
   let manual: string | undefined;
 
   // 路由错误识别:ADP 主控 agent 还在用旧版"信息收集"提示词自己回答,
