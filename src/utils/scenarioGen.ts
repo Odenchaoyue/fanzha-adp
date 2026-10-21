@@ -191,6 +191,15 @@ export function cleanCallText(s: string): string {
   t = t.replace(/\{\s*"Type"\s*:\s*"custom_params"[\s\S]*$/g, '');
   t = t.replace(/"Thought"\s*:\s*"(?:[^"\\]|\\[\s\S])*"/g, '');
 
+  // 2.5) 新版 ADP 会把"用户起疑了/作为骗子,我需要..."这类策略分析混进正文;
+  //      若文本以分析性内容开头且包含引号台词,只保留引号内的角色台词
+  if (/^(用户|对方|受害人|作为骗子|我需要|现在需要|策略|分析|让我)/.test(t)) {
+    const quoted = t.match(/[“‘"']([^”’"']+)[”’"']/g);
+    if (quoted && quoted.length > 0) {
+      t = quoted.map((q) => q.slice(1, -1)).join('');
+    }
+  }
+
   // 3) 找"正文开始标志",取它之后的所有内容(最稳,一次性丢弃前面所有思考)
   //    骗子对用户说话一定有这些开头;思考句里通常用"用户"而非"您"
   const BODY_START = /您好|你好|这里是|这个案件|本次|本案|此案|您的身份证|你的身份证|您的账户|你的账户|您的银行卡|你的银行卡/;
@@ -228,6 +237,20 @@ export interface TheaterTurn {
   tips?: string[]; // 复盘轮:反诈心法
   raw: string;
   routingError?: string; // ADP 主控 agent 路由错误时的诊断信息
+}
+
+/**
+ * 如果正文末尾自带 A/B/C 选项,而前端已经会渲染可点击按钮,
+ * 就把正文里的选项段裁掉,避免同一组选项出现两遍、破坏沉浸感。
+ */
+function stripOptionsFromVisible(text: string, options?: TheaterOption[]): string {
+  if (!text || !options || options.length === 0) return text;
+  const m = text.match(/^\s*A\s*[.、：:]\s*/m);
+  if (!m || m.index === undefined || m.index <= 0) return text;
+  const tail = text.slice(m.index);
+  const count = (tail.match(/^\s*[A-C]\s*[.、：:]\s*/gm) || []).length;
+  if (count < 2) return text;
+  return text.slice(0, m.index).trim();
 }
 
 /** 从纯文本格式中正则提取 A/B/C 选项(无 JSON 信封时的兜底) */
@@ -305,7 +328,7 @@ export function parseTheaterTurn(raw: string): TheaterTurn {
       .replace(/^---+\s*\n?/, '')
       .trim();
   }
-  const cleanVisible = stripJsonFence(visible);
+  let cleanVisible = stripJsonFence(visible);
   const cleanManual = manual ? stripJsonFence(manual) : undefined;
 
   // 优先用 JSON 信封的 options;否则从文本正则抠
@@ -317,6 +340,15 @@ export function parseTheaterTurn(raw: string): TheaterTurn {
           pathType: String(o.pathType || 'unknown'),
         }))
       : parseOptionsFromText(cleanVisible);
+
+  // 正文里如果自带 A/B/C 选项,裁掉,避免和下方可点击按钮重复
+  cleanVisible = stripOptionsFromVisible(cleanVisible, options);
+
+  // 去掉系统口吻的"选择后果/升级场景"标签,保留剧情正文,避免破坏沉浸感
+  cleanVisible = cleanVisible
+    .replace(/^\s*【(?:选择后果|选择结果)】[^\n]*(?:\n|$)/gm, '')
+    .replace(/^\s*【(?:升级场景|场景升级)】\s*/gm, '')
+    .trim();
 
   // 兜底:场景轮没抠到选项(如 ADP 返回叙事体剧本)时,给通用 A/B/C,保证流程可继续
   const needFallback =

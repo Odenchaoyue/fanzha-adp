@@ -45,8 +45,29 @@ function extractEventText(evt: any): string | null {
   // 只有"纯思维链事件"(MessageType=thought/thinking 且没有任何正文)才跳过。
   const isThought =
     t === "thought" ||
-    t === "thinking";
+    t === "thinking" ||
+    !!(evt.Message && evt.Message.Type === "thought");
   if (isThought) return null;
+
+  // 新版 ADP 平台: text.delta 同时用于思考(reasoning)和正文(reply)
+  // thought 消息的 MessageId 以 prc_ 开头, reply 以 rpl_ 开头
+  if (
+    t === "text.delta" &&
+    typeof evt.MessageId === "string" &&
+    evt.MessageId.startsWith("prc_")
+  ) {
+    return null;
+  }
+
+  // 新版 ADP 平台: message.done 携带完整回复
+  if (t === "message.done" && evt.Message && evt.Message.Type === "reply") {
+    const contents = Array.isArray(evt.Message.Contents) ? evt.Message.Contents : [];
+    const text = contents
+      .filter((c: any) => c && c.Type === "text" && typeof c.Text === "string")
+      .map((c: any) => c.Text)
+      .join("");
+    if (text) return text;
+  }
 
   // 对象型输出(ADP 工作流结束节点 output type=obj):
   // 直接序列化为合法 JSON 字符串,便于下游 JSON.parse;真正的对象另由 extractEventObject 透传给 onObject
@@ -79,6 +100,13 @@ function extractEventText(evt: any): string | null {
 function extractEventObject(evt: any): any | null {
   const t = evt.MessageType || evt.Type || evt.type || evt.event || "";
   if (t === "error" || t === "response.failed") return null;
+  // 新版 ADP 平台的流式控制事件不是工作流的结构化输出,跳过
+  if (
+    ["request_ack", "response.created", "response.processing", "response.completed",
+     "message.added", "message.done", "content.added", "text.delta"].includes(t)
+  ) {
+    return null;
+  }
   const isThought =
     t === "thought" ||
     t === "thinking";
@@ -132,8 +160,9 @@ export async function sendToADP(opts: ADPOptions): Promise<string> {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    let finished = false;
 
-    while (true) {
+    while (!finished) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
@@ -146,7 +175,11 @@ export async function sendToADP(opts: ADPOptions): Promise<string> {
         const s = line.trim();
         if (!s.startsWith("data:")) continue;
         const payload = s.slice(5).trim();
-        if (!payload || payload === "[DONE]") continue;
+        if (!payload) continue;
+        if (payload === "[DONE]") {
+          finished = true;
+          break;
+        }
 
         let evt: any;
         try {
@@ -173,12 +206,20 @@ export async function sendToADP(opts: ADPOptions): Promise<string> {
               opts.onDelta?.(text);
             }
           }
+
+          // 新版 ADP 平台以 response.completed 表示整轮结束;部分工作流不会发 [DONE],
+          // 若只等连接关闭会一直停留在流式原文(剧场的选项/选择后果不消失)。
+          if (evt.Type === "response.completed") {
+            finished = true;
+            break;
+          }
         } catch (e: any) {
           opts.onError?.(e.message || "ADP 事件解析失败");
           return full; // 错误事件: 中止读取
         }
       }
     }
+    try { await reader.cancel(); } catch { /* 忽略 */ }
   } catch (e: any) {
     if (e?.name === "AbortError") {
       opts.onError?.(
