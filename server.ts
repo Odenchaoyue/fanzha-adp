@@ -4,7 +4,7 @@
  * 后端全部走代理:
  *   /proxy/adp → https://adp.gaoxiaobang.com/adp/v2/chat  (私有化 ADP,SSE 流式)
  *   /proxy/asr → http://8.134.117.157:10095/recognition (队友的语音识别)
- *   /proxy/tts → Edge 神经网络音色 (edge-tts.js,免费无 Key)
+ *   /proxy/tts → 服务器 Edge 神经网络音色 (Python TTS, 8.134.117.157:10096)
  *
  * 用法: npm install && npm run dev  →  浏览器打开 http://localhost:3000
  */
@@ -13,7 +13,6 @@ import path from "path";
 import http from "http";
 import https from "https";
 import { createServer as createViteServer } from "vite";
-import * as edgeTTS from "./edge-tts.js";
 
 const app = express();
 const PORT = 3000;
@@ -50,25 +49,56 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-/* ====== Edge TTS 路由(单独处理,非简单转发) ======
+/* ====== TTS 路由: 转发到服务器上的 Python Edge TTS 服务 ======
  * POST /proxy/tts  { text, voice: 'xiaoxiao', rate: '+8%' }
- * → audio/mpeg (mp3 二进制)
+ * → audio/wav (服务器用 edge-tts 7.3.1 合成)
  */
-app.post("/proxy/tts", async (req, res) => {
+const TTS_VOICE_MAP: Record<string, string> = {
+  xiaoxiao: "zh-CN-XiaoxiaoNeural",
+  xiaoyi: "zh-CN-XiaoyiNeural",
+  xiaobei: "zh-CN-liaoning-XiaobeiNeural",
+  xiaoniang: "zh-CN-shaanxi-XiaoniangNeural",
+  xiaohan: "zh-CN-XiaohanNeural",
+  xiaorou: "zh-CN-XiaorouNeural",
+};
+
+app.post("/proxy/tts", (req, res) => {
   try {
     const text = String(req.body?.text || "").slice(0, 600); // 防超长
-    const voice = (edgeTTS as any).VOICES[req.body?.voice]?.name
-      || (edgeTTS as any).VOICES.xiaoxiao.name;
+    const voice = TTS_VOICE_MAP[String(req.body?.voice || "xiaoxiao")] || TTS_VOICE_MAP.xiaoxiao;
     const rate = typeof req.body?.rate === "string" && /^[+-]\d+%$/.test(req.body.rate)
       ? req.body.rate : "+8%";
     if (!text.trim()) {
       res.status(400).json({ error: "text required" });
       return;
     }
-    const mp3 = await (edgeTTS as any).synthesize(text, voice, { rate });
-    res.set("Content-Type", "audio/mpeg");
-    res.set("Cache-Control", "no-cache");
-    res.send(Buffer.from(mp3));
+    const payload = JSON.stringify({ text, voice, rate });
+    const upstream = http.request(
+      {
+        hostname: "8.134.117.157",
+        port: 10096,
+        path: "/synthesize",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(payload),
+        },
+      },
+      (up) => {
+        res.set("Content-Type", up.headers["content-type"] || "audio/wav");
+        res.set("Cache-Control", "no-cache");
+        res.status(up.statusCode || 502);
+        up.pipe(res);
+      }
+    );
+    upstream.on("error", (e) => {
+      console.error("TTS proxy error:", e.message);
+      if (!res.headersSent) {
+        res.status(502).json({ error: "TTS proxy failed: " + e.message });
+      }
+    });
+    upstream.write(payload);
+    upstream.end();
   } catch (e: any) {
     console.error("TTS error:", e.message);
     res.status(502).json({ error: "TTS failed: " + e.message });
