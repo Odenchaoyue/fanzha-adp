@@ -40,10 +40,11 @@ function extractEventText(evt: any): string | null {
   }
 
   // 思维链判定(绝不渲染给用户)
+  // 注意: ADP 私有化部署会把"思考"和"正文"放在【同一个事件】里(Content=正文, Thought=推理),
+  // 不能因为事件带 Thought 字段就整条丢弃,否则正文(Content)会被一起吃掉。
+  // 只有"纯思维链事件"(MessageType=thought/thinking 且没有任何正文)才跳过。
   const isThought =
     t === "thought" ||
-    !!evt.Thought ||
-    !!(evt.Payload && evt.Payload.Thought) ||
     t === "thinking";
   if (isThought) return null;
 
@@ -80,8 +81,6 @@ function extractEventObject(evt: any): any | null {
   if (t === "error" || t === "response.failed") return null;
   const isThought =
     t === "thought" ||
-    !!evt.Thought ||
-    !!(evt.Payload && evt.Payload.Thought) ||
     t === "thinking";
   if (isThought) return null;
   const candidates = [
@@ -161,7 +160,6 @@ export async function sendToADP(opts: ADPOptions): Promise<string> {
           if (obj) opts.onObject?.(obj);
           const text = extractEventText(evt);
           if (text) {
-            // 去重策略(兼容三种 ADP 发送模式):
             // 1) 整包模式: text 是 full 的子串 → 跳过
             // 2) 累积式 delta: text 包含 full(每次发的是完整内容) → 用 text 替换 full
             // 3) 增量式 delta: text 是纯新增片段 → 追加

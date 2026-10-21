@@ -22,7 +22,7 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
       id="side-nav-bar"
       className="hidden md:flex fixed left-0 top-0 h-full flex-col items-center py-8 z-40 bg-[#FAF9F6] border-r border-[#141414] w-20 pt-20 select-none justify-between"
     >
-      {/* Top Section: Vertical Editorial Title */}
+      {/* 顶部区域：纵向编辑标题 */}
       <div className="flex flex-col items-center gap-6">
         <div className="rotate-180 [writing-mode:vertical-lr] text-[9px] uppercase tracking-[0.4em] text-[#141414]/50 font-mono font-bold">
           ESTABLISHED—2026
@@ -73,7 +73,7 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
         </button>
       </div>
 
-      {/* Bottom Section: Monospace Index Indicator & Avatar */}
+     {/* 底部区域：等宽索引指示器与头像 */}
       <div className="flex flex-col items-center gap-4">
         {/* User Profile Avatar with sharp border */}
         <div className="flex flex-col items-center group relative">
@@ -91,7 +91,7 @@ export const SideNavBar: React.FC<SideNavBarProps> = ({
           </div>
         </div>
 
-        {/* Studio Index Numeral from Design Theme */}
+        {/* 设计主题中的工作室索引数字 */}
         <div className="text-xs font-mono font-bold text-[#FF4D00] tracking-wider">
           001
         </div>

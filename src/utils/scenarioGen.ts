@@ -128,6 +128,33 @@ export function cleanTheaterText(s: string): string {
  * 4) 如果正文标志也没找到,回退到句子级思考特征删除(最后兜底)
  * 5) 去 markdown
  */
+/**
+ * 兜底:模拟来电请求被主控 Agent 误路由到剧本生成分支时,ADP 返回的是剧场格式
+ * (【玩家可见】/🔀 你的选择/【主持人手册】),直接播给用户会彻底出戏。
+ * 这里把「🎭 诈骗开场」里的那句台词抽出来当作来电内容,让通话能继续。
+ * 检测不到剧场特征时原样返回,不影响正常回复。
+ */
+export function extractCallLine(s: string): string {
+  if (!s) return '';
+  const isTheater = /【玩家可见】|🔀\s*你的选择|【主持人手册】|🎭\s*诈骗开场/.test(s);
+  if (!isTheater) return s;
+
+  const openSec = s.split(/🎭\s*诈骗开场/)[1] || '';
+  // 优先取「诈骗开场」后的第一段引号台词(兼容中英文引号)
+  const quoted = openSec.match(/(["“”「『])([^"“”」』]{6,300})(["“”」』])/);
+  if (quoted && quoted[2]) return quoted[2].trim();
+
+  // 次选:取「诈骗开场」到「你的选择」之间的正文,去掉引号
+  const between = openSec
+    .split(/🔀|你的选择/)[0]
+    .replace(/["“”「」『』]/g, '')
+    .trim();
+  if (between) return between.slice(0, 300);
+
+  // 实在抽不到,给一句不突兀的过渡,而不是把 A/B/C 选项念出来
+  return '(对方清了清嗓子,似乎在核对什么资料……)';
+}
+
 export function cleanCallText(s: string): string {
   if (!s) return '';
   let t = s;
@@ -227,18 +254,38 @@ function inferPhase(text: string, options?: TheaterOption[]): string {
   return 'scene';
 }
 
+/**
+ * 折叠 ADP 工作流的重复交付:一次请求里,工作流有时把同一份剧本输出两遍
+ * (中间夹"好的！智能体马上启动！"调度标记或重复的交付语)。
+ * 只保留最后一个交付标记之后的内容(最后一遍最完整)。
+ */
+function collapseDuplicates(s: string): string {
+  if (!s) return s;
+  const t = s.trim();
+  const phraseCnt = (t.match(/为您生成了以下反诈剧本演练/g) || []).length;
+  const dispatchCnt = (t.match(/好的！智能体马上启动！/g) || []).length;
+  if (phraseCnt + dispatchCnt < 2) return t; // 只有一份交付,无需折叠
+  const cut = Math.max(
+    t.lastIndexOf('为您生成了以下反诈剧本演练'),
+    t.lastIndexOf('好的！智能体马上启动！')
+  );
+  if (cut <= 0) return t;
+  return t.slice(cut).trim().replace(/^好的[，,、!！]?\s*/, '').trim();
+}
+
 /** 解析 ADP 一轮返回:先清洗流噪声,再拆分可见/手册、抽取 JSON 信封;无信封则从文本正则抠选项 */
 export function parseTheaterTurn(raw: string): TheaterTurn {
-  const env = extractJson(raw);
+  const source = collapseDuplicates(raw); // 先折叠重复交付,避免整段剧本渲染两遍
+  const env = extractJson(source);
   // 清洗:抽 Content 载荷、去事件壳/路由口播/Thought 噪声
-  const cleaned = cleanTheaterText(raw);
+  const cleaned = cleanTheaterText(source);
   let visible = cleaned;
   let manual: string | undefined;
 
   // 路由错误识别:ADP 主控 agent 还在用旧版"信息收集"提示词自己回答,
   // 把它的内部思考当剧本正文是错的,直接标记为错误并 fallback 到本地剧本
-  const routingError = isMainAgentRoutingNoise(cleaned) || isMainAgentRoutingNoise(raw)
-    ? buildRoutingErrorHint(raw)
+  const routingError = isMainAgentRoutingNoise(cleaned) || isMainAgentRoutingNoise(source)
+    ? buildRoutingErrorHint(source)
     : undefined;
 
   // 过滤掉 Thought/思考过程(ADP 有时会返回内部推理) — stripJsonFence 已处理,此处不再重复
@@ -249,6 +296,14 @@ export function parseTheaterTurn(raw: string): TheaterTurn {
   if (sep !== -1 && visible.includes('主持人手册')) {
     manual = visible.slice(sep + 3).trim();
     visible = visible.slice(0, sep).trim();
+  } else {
+    // 普通叙事剧本(无【主持人手册】):去掉开头的工作流口播/交付语/分隔线,
+    // 让气泡直接从剧本主体开始(如 "🎭 反诈剧本演练:..."),不被"知识库检索…"等噪声占位
+    visible = visible
+      .replace(/^知识库中未检索到相关结果好的[，,、]?\s*/, '')
+      .replace(/^(?:好的[，,、!！]?\s*)?(?:为您生成了以下反诈剧本演练|好的！智能体马上启动！)[：:]?\s*/, '')
+      .replace(/^---+\s*\n?/, '')
+      .trim();
   }
   const cleanVisible = stripJsonFence(visible);
   const cleanManual = manual ? stripJsonFence(manual) : undefined;

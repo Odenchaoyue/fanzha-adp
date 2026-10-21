@@ -15,9 +15,8 @@ import { AntiFraudQAModal } from './components/AntiFraudQAModal';
 import { ForensicReportModal } from './components/ForensicReportModal';
 import { AnalyticsView } from './components/AnalyticsView';
 
-/* localStorage 持久化 key(与旧版单页兼容) */
+/* localStorage 持久化 key(仅保留 visitor/voice,AppKey 改从 .env 读) */
 const LS_KEYS = {
-  appKey: 'fz_appkey',
   visitor: 'fz_visitor',
   voice: 'fz_voice',
 };
@@ -27,7 +26,13 @@ function loadConfig(): AppConfig {
   let visitorId = '';
   let ttsVoice: AppConfig['ttsVoice'] = 'xiaoxiao';
   try {
-    appKey = localStorage.getItem(LS_KEYS.appKey) || '';
+    // AppKey 优先取自 Vite 注入的环境变量(.env: VITE_APP_KEY=...),旧版 localStorage 兜底兼容
+    const envKey = (import.meta as any).env?.VITE_APP_KEY as string | undefined;
+    if (envKey && envKey.trim()) {
+      appKey = envKey.trim();
+    } else {
+      appKey = localStorage.getItem('fz_appkey') || ''; // 兼容旧配置
+    }
     visitorId = localStorage.getItem(LS_KEYS.visitor) || '';
     const v = localStorage.getItem(LS_KEYS.voice);
     if (v === 'xiaoxiao' || v === 'xiaoyi' || v === 'xiaobei' || v === 'xiaoniang' || v === 'xiaohan' || v === 'xiaorou') {
@@ -51,10 +56,9 @@ export default function App() {
 
   const [config, setConfig] = useState<AppConfig>(loadConfig);
 
-  // 配置持久化
+  // 配置持久化(只写 visitor/voice,AppKey 来自 .env 不再回写)
   useEffect(() => {
     try {
-      localStorage.setItem(LS_KEYS.appKey, config.appKey);
       localStorage.setItem(LS_KEYS.visitor, config.visitorId);
       localStorage.setItem(LS_KEYS.voice, config.ttsVoice);
     } catch {

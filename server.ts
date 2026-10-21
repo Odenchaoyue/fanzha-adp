@@ -2,7 +2,7 @@
  * 反诈实训系统 - 本地代理服务器 (ADP 版)
  *
  * 后端全部走代理:
- *   /proxy/adp → https://101.42.184.216/adp/v2/chat  (私有化 ADP,SSE 流式)
+ *   /proxy/adp → https://adp.gaoxiaobang.com/adp/v2/chat  (私有化 ADP,SSE 流式)
  *   /proxy/asr → http://8.134.117.157:10095/recognition (队友的语音识别)
  *   /proxy/tts → Edge 神经网络音色 (edge-tts.js,免费无 Key)
  *
@@ -36,10 +36,12 @@ const PROXIES: Record<string, {
     headers: { "Content-Type": "application/json" },
   },
   "/proxy/adp": {           // ADP 对话(SSE 流)
-    target: "https://101.42.184.216/adp/v2/chat",
+    // 注意:必须用域名访问。该服务器的 nginx 按 Host 头做虚拟主机分流,
+    // 直接写 IP(101.42.184.216)会落到默认站点返回 404。
+    target: "https://adp.gaoxiaobang.com/adp/v2/chat",
     method: "POST",
     headers: { "Content-Type": "text/plain", "Accept": "text/event-stream" },
-    rejectUnauthorized: false,  // 自签证书
+    rejectUnauthorized: true,   // 域名证书已正式签发(curl 默认校验可通过)
   },
 };
 
@@ -84,6 +86,11 @@ for (const [prefix, cfg] of Object.entries(PROXIES)) {
     const bodyStr =
       typeof req.body === "string" ? req.body : JSON.stringify(req.body || {});
 
+    // SSE 心跳:上游静默期间(工作流正在跑 Agent)定期写 SSE 注释行保活,
+    // 防止浏览器/中间代理因长连接空闲而掐断
+    let lastDataAt = Date.now();
+    let heartbeat: NodeJS.Timeout | null = null;
+
     const proxyReq = lib.request(
       {
         hostname: url.hostname,
@@ -99,10 +106,32 @@ for (const [prefix, cfg] of Object.entries(PROXIES)) {
       (proxyRes) => {
         res.set("Content-Type", proxyRes.headers["content-type"] || "application/json");
         res.set("Cache-Control", "no-cache");
+        res.set("X-Accel-Buffering", "no"); // 防反向代理缓冲(SSE 关键)
         res.status(proxyRes.statusCode || 502);
+
+        lastDataAt = Date.now();
+        proxyRes.on("data", () => { lastDataAt = Date.now(); });
+
+        heartbeat = setInterval(() => {
+          if (!res.writableEnded && Date.now() - lastDataAt > 20000) {
+            try { res.write(": keepalive\n\n"); } catch { /* 连接已断,忽略 */ }
+          }
+        }, 5000);
+
         proxyRes.pipe(res); // 流式转发(SSE 关键)
       }
     );
+
+    // 客户端提前断开(换场景 / 关弹窗 / 前端超时 abort)时必须销毁上游连接。
+    // 否则上游请求继续在 ADP 侧跑,同一 ConversationId 的后续请求会被排队阻塞,
+    // 表现为"平时很快,连点几次后 200s 无响应 → 504"
+    res.on("close", () => {
+      if (heartbeat) clearInterval(heartbeat);
+      if (!res.writableEnded) {
+        console.warn("[proxy] 客户端提前断开,销毁上游连接");
+        proxyReq.destroy();
+      }
+    });
 
     proxyReq.on("error", (err) => {
       console.error("Proxy error:", err.message);
@@ -112,10 +141,10 @@ for (const [prefix, cfg] of Object.entries(PROXIES)) {
     });
 
     // 上游(ADP)超时兜底: 慢工作流不要无限挂起,转为干净的 504
-    // 200s > 前端 180s,确保前端先超时(前端超时有 UI 提示,服务端 504 是裸 JSON 不好处理)
-    proxyReq.setTimeout(200000);
+    // 240s > 前端 180s,确保正常情况下前端先超时(前端超时带 UI 提示,裸 504 不好处理)
+    proxyReq.setTimeout(240000);
     proxyReq.on("timeout", () => {
-      console.error("Proxy upstream timeout (ADP 无响应 >200s)");
+      console.error("Proxy upstream timeout (ADP 无响应 >240s)");
       proxyReq.destroy();
       if (!res.headersSent) {
         res.status(504).json({ code: -1, error: "ADP 上游超时,请稍后重试" });

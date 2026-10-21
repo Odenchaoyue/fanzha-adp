@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { AppConfig } from '../types';
 import { sendToADP, newConversationId } from '../utils/adpClient';
+import { cleanTheaterText } from '../utils/scenarioGen';
 
 interface AntiFraudQAModalProps {
   config: AppConfig;
@@ -51,7 +52,7 @@ export const AntiFraudQAModal: React.FC<AntiFraudQAModalProps> = ({ config, onCl
     setMessages((prev) => [
       ...prev,
       userMsg,
-      // 先插入空气泡,流式填充
+      // 流式填充
       {
         id: replyId,
         role: 'model',
@@ -69,15 +70,18 @@ export const AntiFraudQAModal: React.FC<AntiFraudQAModalProps> = ({ config, onCl
       conversationId: conversationIdRef.current,
       onDelta: (chunk) => {
         finalText += chunk;
+        // 清洗 ADP 事件壳({"Type":"text"} / {"Type":"custom_params",...} / Thought 字段),
+        // 避免原始 SSE JSON 串渲染到气泡里(直接问答分支也会带这类事件壳)
+        const display = cleanTheaterText(finalText);
         setMessages((prev) =>
-          prev.map((m) => (m.id === replyId ? { ...m, content: finalText } : m))
+          prev.map((m) => (m.id === replyId ? { ...m, content: display } : m))
         );
       },
       onError: (msg) => console.error('ADP QA error:', msg),
     });
 
     if (!finalText) {
-      const errText = '【连接异常】ADP 工作流未返回内容。请检查首页配置的 AppKey 是否有效,或稍后重试。\n\n紧急提醒:凡是索要验证码、要求开启"屏幕共享"或声称转入"安全账户"的,一律为100%诈骗!紧急风险请拨打96110。';
+      const errText = '【连接异常】ADP 工作流未返回内容。请确认项目根目录 `.env` 中 VITE_APP_KEY 配置正确且网络可达 ADP,或稍后重试。\n\n紧急提醒:凡是索要验证码、要求开启"屏幕共享"或声称转入"安全账户"的,一律为100%诈骗!紧急风险请拨打96110。';
       setMessages((prev) => prev.map((m) => (m.id === replyId ? { ...m, content: errText } : m)));
     }
 

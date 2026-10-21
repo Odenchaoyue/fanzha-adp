@@ -1,6 +1,5 @@
 {
   "name": "反诈教育智能体",
   "description": "专为反诈能力实训打造的智能教育系统，提供模拟AI来电、互动反诈剧场、智能反诈问答与多维度风险溯源报告。",
-  "requestFramePermissions": ["microphone"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": ["microphone"]
 }

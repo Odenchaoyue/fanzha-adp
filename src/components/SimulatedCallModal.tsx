@@ -3,7 +3,7 @@ import { CallScenario, ConversationTurn, ForensicReport, AppConfig } from '../ty
 import { CALL_SCENARIOS } from '../data/scenarios';
 import { playVoiceSample, playPhoneRingSound, stopSpeaking } from '../utils/audioHelper';
 import { sendToADP, newConversationId } from '../utils/adpClient';
-import { cleanCallText } from '../utils/scenarioGen';
+import { cleanCallText, extractCallLine } from '../utils/scenarioGen';
 import { WavRecorder, recognizeSpeech } from '../utils/recorder';
 import { scoreRisk, wordsToTactics, generateLocalReport } from '../utils/riskEngine';
 
@@ -56,16 +56,18 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
   const recorderRef = useRef<WavRecorder | null>(null);
   const tacticsRef = useRef<Set<string>>(new Set());
   const scenarioRef = useRef(selectedScenario);
+  // 来电轮次,用于给每条输入打 [call=1][turn=N] 状态标签
+  const callRoundRef = useRef<number>(1);
   scenarioRef.current = selectedScenario;
 
-  // Auto-scroll chat transcript
+  // 自动滚动聊天记录
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
     }
   }, [conversation]);
 
-  // Handle incoming call ring sound
+  // 自动滚动聊天记录
   useEffect(() => {
     if (callState === 'incoming') {
       stopRingRef.current = playPhoneRingSound();
@@ -77,7 +79,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     };
   }, [callState]);
 
-  // Call timer
+  // 通话计时器
   useEffect(() => {
     if (callState === 'connected') {
       timerRef.current = setInterval(() => setCallSeconds((prev) => prev + 1), 1000);
@@ -112,8 +114,12 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     }
   };
 
+  /* 来电模式的状态标签:与剧本模式的 [round=N] 协议对称。
+     不带标签时,通话里任意一句「选择/演练/结束」都可能被意图节点误判到剧本分支。 */
+  const tagCallPayload = (text: string, round: number) => `[call=1][turn=${round}] ${text}`;
+
   /* 流式发送一条消息给 ADP,渲染为 caller 的回复气泡 */
-  const streamCallerReply = async (text: string) => {
+  const streamCallerReply = async (text: string, round: number) => {
     const turnId = `caller-${Date.now()}`;
     // 先插入空气泡(打字状态)
     setConversation((prev) => [
@@ -125,7 +131,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     let finalText = '';
     let errorMsg = '';
     const result = await sendToADP({
-      text,
+      text: tagCallPayload(text, round),
       appKey: config.appKey,
       visitorId: config.visitorId,
       conversationId: conversationIdRef.current,
@@ -151,6 +157,17 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
 
     // 最终清洗(确保 finalText 是纯正文,用于计分/播报)
     finalText = cleanCallText(finalText);
+    // 兜底:ADP 主控 Agent 若把来电请求误路由到剧本分支,会把「玩家可见/A/B/C 选项/
+    // 主持人手册」整套剧本吐回来。这里只抽「诈骗开场」里的台词,避免念选项和手册出戏。
+    // 根治仍需在 ADP 意图识别节点加 [call= 路由规则,此函数检测不到剧场特征时原样返回。
+    finalText = extractCallLine(finalText);
+
+    // 兜底:来电 Agent 提示词要求「5轮后输出结构化反馈报告」,一旦命中就会在通话中
+    // 出戏播报 JSON/评级。这里直接截断,把沉浸感损失降到最低(根治需改平台提示词)。
+    const leakIdx = finalText.search(/\{\s*"risk_level"|【演练报告】|风险评级[（(]三选一/);
+    if (leakIdx > 0) {
+      finalText = finalText.slice(0, leakIdx).trim() || '(对方沉默了片刻,电话里传来忙音……)';
+    }
     if (finalText) {
       setConversation((prev) =>
         prev.map((t) => (t.id === turnId ? { ...t, text: finalText } : t))
@@ -176,10 +193,10 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     }
   };
 
-  // Handle Answer Call: 把场景设定发给 ADP,AI 流式说出开场白
+  // 处理接听来电: 把场景设定发给 ADP,AI 流式说出开场白
   const handleAnswerCall = async () => {
     if (!config.appKey.trim()) {
-      alert('请先在首页「系统配置」中填写 ADP AppKey,才能接通模拟来电。');
+      alert('未配置 ADP AppKey。请在项目根目录 `.env` 填入 VITE_APP_KEY 后重启 npm run dev,再接通模拟来电。');
       return;
     }
     if (stopRingRef.current) stopRingRef.current();
@@ -193,10 +210,11 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
       setStressScore(35);
     }
 
-    await streamCallerReply(buildOpeningPrompt(selectedScenario));
+    callRoundRef.current = 1;
+    await streamCallerReply(buildOpeningPrompt(selectedScenario), 1);
   };
 
-  // Handle Sending a user response
+  // 处理发送用户响应
   const handleSendResponse = async (textToSend?: string) => {
     const text = (textToSend || userInput).trim();
     if (!text || isAiResponding || callState !== 'connected') return;
@@ -210,7 +228,8 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
       { id: `user-${Date.now()}`, sender: 'user', text, timestamp: now() },
     ]);
 
-    await streamCallerReply(text);
+    callRoundRef.current += 1;
+    await streamCallerReply(text, callRoundRef.current);
   };
 
   /* ====== 按住说话:WavRecorder 录音 → ASR 识别 → 自动发送 ====== */
@@ -255,7 +274,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     }
   };
 
-  // Handle Hang up: 本地规则引擎生成法证报告(演示稳定,不依赖网络)
+  // 处理挂断: 本地规则引擎生成法证报告(演示稳定,不依赖网络)
   const handleHangUp = async (reason: string = 'ended') => {
     if (stopRingRef.current) stopRingRef.current();
     if (timerRef.current) clearInterval(timerRef.current);
@@ -282,10 +301,11 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     setStressScore(35);
     setActiveTactics([]);
     setCallSeconds(0);
+    callRoundRef.current = 1;
     setCallState('incoming');
   };
 
-  // Suggested Quick Responses based on current scenario
+  // 根据当前场景建议的快速回复
   const getQuickReplies = () => {
     if (selectedScenario.id === 'police') {
       return [
@@ -373,7 +393,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
               </div>
             </div>
 
-            {/* Stress & Risk Monitor */}
+            {/* 压力与风险监控 */}
             {callState === 'connected' && (
               <div className="bg-white/5 border border-white/15 p-4 mt-3">
                 <div className="flex justify-between items-center text-xs mb-2 font-mono">
@@ -389,7 +409,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
                   />
                 </div>
 
-                {/* Detected Tactics */}
+                {/* 检测到的策略 */}
                 <div className="mt-3">
                   <span className="text-[10px] font-mono text-white/60 uppercase block mb-1">已捕捉诈骗技巧特征:</span>
                   <div className="flex flex-wrap gap-1.5">
@@ -433,7 +453,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
             )}
           </div>
 
-          {/* Bottom Actions: Answer / Reject / Hang Up */}
+          {/* 底部操作：接听/拒接/挂断 */}
           <div className="pt-6">
             {callState === 'incoming' ? (
               <div className="flex items-center justify-around gap-3">
@@ -488,9 +508,9 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
           </div>
         </div>
 
-        {/* Right Side: Interactive Dialogue & Transcript */}
+        {/* 右侧：交互式对话与文字记录 */}
         <div className="w-full md:w-7/12 p-6 flex flex-col justify-between bg-[#FAF9F6] min-h-[380px]">
-          {/* Header */}
+          {/* 头*/}
           <div className="flex justify-between items-center pb-3 border-b border-[#141414]">
             <div>
               <h4 className="text-sm font-bold text-[#141414] font-mono uppercase flex items-center gap-2">
@@ -511,7 +531,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
             </button>
           </div>
 
-          {/* Transcript Scroll Area */}
+          {/* 文字记录滚动区域 */}
           <div
             ref={scrollContainerRef}
             className="flex-1 overflow-y-auto my-4 pr-2 space-y-3 max-h-[300px]"
@@ -570,7 +590,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
             )}
           </div>
 
-          {/* Quick Counter Responses */}
+          {/* 快速按钮响应 */}
           {callState === 'connected' && (
             <div className="pt-3 border-t border-[#141414]">
               <div className="text-[11px] text-[#141414]/70 font-mono uppercase mb-2 flex items-center justify-between font-bold">
@@ -596,7 +616,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
                 <div className="text-[11px] font-mono text-[#FF4D00] mb-2">{asrStatus}</div>
               )}
 
-              {/* Custom Input Box */}
+              {/* 用户输入框 */}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();

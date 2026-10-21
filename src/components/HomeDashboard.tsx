@@ -18,7 +18,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const [testVoicePlaying, setTestVoicePlaying] = useState(false);
   const [copiedNotification, setCopiedNotification] = useState('');
 
-  /* 各音色的试听台词(贴近该音色的人设) */
+  /* 各音色的试听台词 */
   const VOICE_SAMPLES: Record<string, string> = {
     xiaoxiao: '您好，这里是支付平台客服中心，检测到您的账户存在异常，需要配合核查。',
     xiaoyi: '小姐姐您好，您的会员服务今天到期啦，不取消的话每个月会自动扣费哦。',
@@ -56,7 +56,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       )}
 
-      {/* Editorial Hero / Welcome Section */}
+     {/* 编辑推荐英雄区 / 欢迎区域 */}
       <section id="welcome-section" className="border-b border-[#141414] pb-8 pt-2">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
           <div>
@@ -87,7 +87,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </section>
 
-      {/* Asymmetric Editorial Grid Layout */}
+      {/* 非对称编辑网格布局 */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
         {/* Primary Action: Simulated Call (Left 7 cols) */}
         <div
@@ -126,7 +126,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               由深度对抗大模型驱动的实时电话骗局仿真。精准模拟公检法施压、微信百万保障扣费、退改签理赔等高发话术。
             </p>
 
-            {/* Quick Scenario Chips */}
+            {/* 快速场景标签 */}
             <div
               className="flex flex-wrap gap-2 mb-2"
               onClick={(e) => e.stopPropagation()}
@@ -152,7 +152,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
           </div>
 
-          {/* Action Footer */}
+          {/* 操作页脚 */}
           <div className="relative z-10 flex items-center justify-between mt-8 pt-5 border-t border-white/15">
             <div className="text-xs text-white/60 flex items-center gap-2 font-mono">
               <span className="w-2 h-2 bg-[#FF4D00] animate-pulse"></span>
@@ -172,7 +172,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </div>
         </div>
 
-        {/* Secondary Actions (Right 5 cols) */}
+        {/* 次要操作（右侧 5 列） */}
         <div className="md:col-span-5 flex flex-col gap-6">
           {/* Interactive Theater */}
           <div
@@ -205,7 +205,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             </div>
           </div>
 
-          {/* Anti-Fraud Q&A */}
+          {/* 反欺诈问答 */}
           <div
             id="card-anti-fraud-qa"
             onClick={() => onStartModule('qa')}
@@ -238,7 +238,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </div>
 
-      {/* Configuration Section (Collapsible Accordion with Artistic Flair Brutalism) */}
+     {/* 配置区块（带艺术粗野主义风格的可折叠手风琴组件） */}
       <div
         id="section-system-config"
         className="border border-[#141414] bg-[#EEECE6] overflow-hidden"
@@ -262,25 +262,6 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Inputs */}
               <div className="flex flex-col gap-5">
-                <div>
-                  <label className="block text-xs font-mono uppercase font-bold text-[#141414] mb-2 tracking-wider">
-                    ADP_APP_KEY [应用密钥]
-                  </label>
-                  <input
-                    id="input-app-key"
-                    type="text"
-                    value={config.appKey}
-                    onChange={(e) =>
-                      setConfig((prev) => ({ ...prev, appKey: e.target.value }))
-                    }
-                    placeholder="粘贴 ADP 智能体开发平台的应用 AppKey"
-                    className="w-full border border-[#141414] bg-[#FAF9F6] px-4 py-2.5 text-sm font-mono text-[#141414] focus:border-[#FF4D00] focus:ring-0 focus:outline-none transition-all"
-                  />
-                  <span className="text-[11px] text-[#141414]/60 font-mono mt-1 block">
-                    腾讯云 ADP 智能体平台的 AppKey(发布应用的鉴权密钥),通话与问答都通过它访问你的工作流
-                  </span>
-                </div>
-
                 <div>
                   <label className="block text-xs font-mono uppercase font-bold text-[#141414] mb-2 tracking-wider">
                     VISITOR_ID [学员编号]
@@ -325,7 +306,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 </div>
               </div>
 
-              {/* TTS Voices */}
+              {/* TTS音色*/}
               <div>
                 <div className="flex justify-between items-center mb-3">
                   <label className="block text-xs font-mono uppercase font-bold text-[#141414] tracking-wider">

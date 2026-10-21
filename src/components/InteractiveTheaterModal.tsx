@@ -79,6 +79,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
   const [messages, setMessages] = useState<TheaterMessage[]>([]);
   const [isResponding, setIsResponding] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [hasStarted, setHasStarted] = useState(false); // 用户是否已主动选择过场景(用于决定显示欢迎面板)
 
   const [scene, setScene] = useState(SCENES[0]);
   const [showAudienceForm, setShowAudienceForm] = useState(false);
@@ -208,6 +209,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     setMessages([]);
     setGenError(null);
     setScene(sc);
+    setHasStarted(true); // 标记已开场,后续不再显示欢迎面板
     streamDmReply(buildTheaterRequest({ round: 0, scene: sc, ...reqContext }));
   };
 
@@ -219,12 +221,12 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
     streamDmReply(buildTheaterRequest({ round: roundRef.current, lastScene: lastSceneRef.current, ...reqContext }));
   };
 
-  /* 开场: 有 AppKey 自动开一场;无 Key 展示本地静态剧本 */
+  /* 开场: 不再自动开首场 —— 让用户先选剧本再生成。
+   * 无 AppKey 时显示本地静态样本;有 AppKey 时由用户在欢迎面板里点选场景开始演练。
+   * (StrictMode 双挂载问题也随之消失:不再有任何 effect 自动发请求)
+   */
   useEffect(() => {
-    if (hasKey && !initiatedRef.current) {
-      initiatedRef.current = true;
-      startScene(SCENES[0]);
-    } else if (!hasKey) {
+    if (!hasKey) {
       setMessages([
         {
           id: 'local-0',
@@ -234,6 +236,9 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
           options: LOCAL_SAMPLE.options,
         },
       ]);
+    } else {
+      setMessages([]);
+      setHasStarted(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasKey]);
@@ -323,7 +328,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
           {SCENES.map((s) => (
             <button
               key={s}
-              disabled={!hasKey || isResponding}
+              disabled={!hasKey}
               onClick={() => startScene(s)}
               className={`px-2.5 py-1 border transition-all whitespace-nowrap disabled:opacity-40 ${
                 scene === s && hasKey
@@ -396,12 +401,37 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
         >
           {!hasKey && (
             <div className="bg-[#FF4D00]/10 border border-[#FF4D00] text-[#FF4D00] text-xs font-mono px-4 py-2 mb-2">
-              未检测到 AppKey,当前为本地演示剧本。到首页「设置」填写 AppKey 后,本页会由 ADP 工作流实时驱动。
+              未检测到 AppKey,当前为本地演示剧本。在项目根目录 `.env` 配置 `VITE_APP_KEY` 并重启 `npm run dev` 后,本页会由 ADP 工作流实时驱动。
             </div>
           )}
           {genError && (
             <div className="bg-[#FF4D00]/10 border border-[#FF4D00] text-[#FF4D00] text-xs font-mono px-4 py-2 mb-2 whitespace-pre-wrap max-h-56 overflow-y-auto">
               {genError}
+            </div>
+          )}
+
+          {/* 欢迎面板: 用户尚未选择场景时显示,引导其主动选剧本 */}
+          {hasKey && !hasStarted && messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center text-center py-10 px-4 min-h-[320px]">
+              <span className="material-symbols-outlined text-5xl text-[#FF4D00] mb-3">theater_comedy</span>
+              <h3 className="font-mono text-base font-bold uppercase text-[#141414] mb-2">选择剧本背景</h3>
+              <p className="text-xs text-[#141414]/60 font-serif-editorial italic max-w-md mb-6 leading-relaxed">
+                每选剧本背景由 ADP 工作流实时生成开场剧情、诈骗套路与 A/B/C 选项;<br/>你作为受训学员通过选择逐步识别骗局,主持人手册会在你选完后揭晓真相。
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 w-full max-w-2xl">
+                {SCENES.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => startScene(s)}
+                    className="bg-white hover:bg-[#FF4D00] hover:text-white border border-[#141414] hover:border-[#FF4D00] text-[#141414] px-4 py-3 text-sm font-mono font-bold transition-colors"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-[#141414]/40 font-mono mt-5">
+                或点上方「受训者画像」设置身份,让剧本更贴合你的处境
+              </p>
             </div>
           )}
 
@@ -431,11 +461,11 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
                 )}
               </div>
 
-              {/* 主持人手册(选完后揭示) */}
-              {m.manual && m.chosen && (
+              {/* 主持人手册(仅在最终复盘阶段揭晓 —— 选完每轮 A/B/C 立即剧透等于破坏悬念) */}
+              {m.manual && m.chosen && m.phase === 'review' && (
                 <div className="mt-2 p-4 max-w-[88%] text-sm leading-6 whitespace-pre-wrap bg-[#141414] text-white border border-[#141414] shadow-[2px_2px_0px_#FF4D00]">
                   <span className="font-mono font-bold text-[#FF4D00] block mb-1 text-xs">
-                    🔓 主持人手册揭晓
+                    🔓 主持人手册揭晓(终局复盘)
                   </span>
                   {m.manual}
                 </div>
@@ -532,7 +562,7 @@ export const InteractiveTheaterModal: React.FC<InteractiveTheaterModalProps> = (
               ref={inputRef}
               type="text"
               disabled={!hasKey || isResponding}
-              placeholder={hasKey ? '输入你的回答,或发送指令(如:复盘结束)…' : '请先配置 AppKey'}
+              placeholder={hasKey ? '输入你的回答,或发送指令(如:复盘结束)…' : '请先在 .env 配置 VITE_APP_KEY'}
               className="flex-1 bg-white border border-[#141414] px-4 py-2.5 text-sm text-[#141414] focus:border-[#FF4D00] focus:outline-none font-mono disabled:opacity-50"
             />
             <button

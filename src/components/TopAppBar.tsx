@@ -22,7 +22,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
       id="top-app-bar"
       className="bg-[#FAF9F6] border-b border-[#141414] flex justify-between items-center px-6 md:px-10 h-16 w-full fixed top-0 z-50 transition-colors"
     >
-      {/* Brand & Editorial Monogram */}
+     {/* 品牌与编辑徽标 */}
       <div
         id="brand-logo-button"
         onClick={handleReturnHome}
@@ -43,7 +43,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
         </div>
       </div>
 
-      {/* Center / Right Editorial Nav Links */}
+      {/* 中心/右侧编辑导航链接 */}
       <div className="flex items-center gap-4 md:gap-8">
         <div className="hidden sm:flex items-center gap-6 text-xs uppercase tracking-widest font-mono font-semibold">
           <button
@@ -79,7 +79,7 @@ export const TopAppBar: React.FC<TopAppBarProps> = ({
           </button>
         </div>
 
-        {/* Home / Action Button */}
+        {/* 主页 */}
         <button
           id="btn-return-home"
           onClick={handleReturnHome}
