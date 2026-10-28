@@ -7,6 +7,8 @@ coverage/
 # 系统与日志
 .DS_Store
 *.log
+__pycache__/
+*.pyc
 
 # 环境变量：.env 只留本地，模板可以提交（模板里必须只有占位符）
 .env*
@@ -20,3 +22,9 @@ ppt/
 
 # ---- 与本项目无关的其他项目目录 ----
 互联网大创，科技农业方向/
+
+# ---- 本地音色试音台（voice-lab）：工具脚本入库，模型/样音/环境不入库 ----
+voice-lab/model/
+voice-lab/samples/
+voice-lab/.venv/
+voice-lab/*.tgz

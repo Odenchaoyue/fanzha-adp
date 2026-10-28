@@ -4,7 +4,7 @@
  * 后端全部走代理:
  *   /proxy/adp → https://adp.gaoxiaobang.com/adp/v2/chat  (私有化 ADP,SSE 流式)
  *   /proxy/asr → http://8.134.117.157:10095/recognition (队友的语音识别)
- *   /proxy/tts → 服务器 Edge 神经网络音色 (Python TTS, 8.134.117.157:10096)
+ *   /proxy/tts → 服务器本地离线 TTS (sherpa-onnx, 8.134.117.157:10096)
  *
  * 用法: npm install && npm run dev  →  浏览器打开 http://localhost:3000
  */
@@ -49,23 +49,19 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-/* ====== TTS 路由: 转发到服务器上的 Python Edge TTS 服务 ======
- * POST /proxy/tts  { text, voice: 'xiaoxiao', rate: '+8%' }
- * → audio/wav (服务器用 edge-tts 7.3.1 合成)
+/* ====== TTS 路由: 转发到服务器上的本地离线 TTS 服务 ======
+ * POST /proxy/tts  { text, voice: 'xiaolan', rate: '+8%' }
+ * → audio/wav (服务器用 sherpa-onnx 本地合成，不出网)
  */
-const TTS_VOICE_MAP: Record<string, string> = {
-  xiaoxiao: "zh-CN-XiaoxiaoNeural",
-  xiaoyi: "zh-CN-XiaoyiNeural",
-  xiaobei: "zh-CN-liaoning-XiaobeiNeural",
-  xiaoniang: "zh-CN-shaanxi-XiaoniangNeural",
-  xiaohan: "zh-CN-XiaohanNeural",
-  xiaorou: "zh-CN-XiaorouNeural",
-};
+const TTS_VOICES = new Set(["xiaolan", "xiaoqing", "xiaoyue", "shuyan", "zimo", "qinghe"]);
 
 app.post("/proxy/tts", (req, res) => {
   try {
     const text = String(req.body?.text || "").slice(0, 600); // 防超长
-    const voice = TTS_VOICE_MAP[String(req.body?.voice || "xiaoxiao")] || TTS_VOICE_MAP.xiaoxiao;
+    const requested = String(req.body?.voice || "xiaolan");
+    // sid_N:试音页专用,直连任意 Kokoro speaker id
+    const voice = (TTS_VOICES.has(requested) || /^sid_\d+$/.test(requested))
+      ? requested : "xiaolan";
     const rate = typeof req.body?.rate === "string" && /^[+-]\d+%$/.test(req.body.rate)
       ? req.body.rate : "+8%";
     if (!text.trim()) {
@@ -103,6 +99,45 @@ app.post("/proxy/tts", (req, res) => {
     console.error("TTS error:", e.message);
     res.status(502).json({ error: "TTS failed: " + e.message });
   }
+});
+
+/* ====== TTS 流式路由 ======
+ * GET /proxy/tts/stream?text=...&voice=...&rate=+8%
+ * 浏览器 <audio> 直接指向它：服务器边合成边下发 WAV，句间不会空等。
+ */
+app.get("/proxy/tts/stream", (req, res) => {
+  const text = String(req.query.text || "").slice(0, 600);
+  const voice = String(req.query.voice || "xiaolan");
+  const rate = /^[+-]\d+%$/.test(String(req.query.rate || "")) ? String(req.query.rate) : "+8%";
+  if (!text.trim()) {
+    res.status(400).json({ error: "text required" });
+    return;
+  }
+  const qs = new URLSearchParams({ text, voice, rate }).toString();
+  const upstream = http.request(
+    {
+      hostname: "8.134.117.157",
+      port: 10096,
+      path: "/synthesize_stream?" + qs,
+      method: "GET",
+    },
+    (up) => {
+      res.set("Content-Type", up.headers["content-type"] || "audio/wav");
+      res.set("Cache-Control", "no-cache");
+      res.set("X-Accel-Buffering", "no");
+      res.status(up.statusCode || 502);
+      up.pipe(res);
+    }
+  );
+  upstream.on("error", (e) => {
+    console.error("TTS stream proxy error:", e.message);
+    if (!res.headersSent) res.status(502).json({ error: "TTS stream failed: " + e.message });
+  });
+  // 浏览器切走/打断时销毁上游，及时停止合成
+  res.on("close", () => {
+    if (!res.writableEnded) upstream.destroy();
+  });
+  upstream.end();
 });
 
 /* ====== 通用代理(支持 SSE 流式转发) ====== */
@@ -212,7 +247,7 @@ async function startServer() {
   │   代理路由:                              │
   │   /proxy/adp → ADP 对话(SSE流)          │
   │   /proxy/asr → ASR 语音转文字            │
-  │   /proxy/tts → Edge TTS 神经网络音色     │
+  │   /proxy/tts → 本地离线 TTS 神经网络音色 │
   └──────────────────────────────────────────┘
   `);
   });

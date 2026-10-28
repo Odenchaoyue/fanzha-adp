@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CallScenario, ConversationTurn, ForensicReport, AppConfig } from '../types';
 import { CALL_SCENARIOS } from '../data/scenarios';
-import { playVoiceSample, playPhoneRingSound, stopSpeaking } from '../utils/audioHelper';
+import { createSpeechQueue, playPhoneRingSound, stopSpeaking } from '../utils/audioHelper';
 import { sendToADP, newConversationId } from '../utils/adpClient';
 import { cleanCallText, extractCallLine } from '../utils/scenarioGen';
 import { WavRecorder, recognizeSpeech } from '../utils/recorder';
@@ -59,6 +59,13 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
   const scenarioRef = useRef(selectedScenario);
   // 来电轮次,用于给每条输入打 [call=1][turn=N] 状态标签
   const callRoundRef = useRef<number>(1);
+  // 逐句朗读队列:第一句合成完就开口,后续句子边播边合成
+  const speechQueueRef = useRef<ReturnType<typeof createSpeechQueue> | null>(null);
+  const stopSpeech = () => {
+    speechQueueRef.current?.stop();
+    speechQueueRef.current = null;
+    stopSpeaking();
+  };
   scenarioRef.current = selectedScenario;
 
   // 自动滚动聊天记录
@@ -94,7 +101,10 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
 
   // 组件卸载时停掉一切声音
   useEffect(() => {
-    return () => stopSpeaking();
+    return () => {
+      speechQueueRef.current?.stop();
+      stopSpeaking();
+    };
   }, []);
 
   const now = () =>
@@ -131,6 +141,30 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
 
     let finalText = '';
     let errorMsg = '';
+
+    // 边收 ADP 文字边合成:第一句完整就立刻送 TTS,
+    // 不等整段回复,首句出声可与 AI 继续生成后面的内容重叠。
+    let speechRest = '';
+    const speechQueue = isSpeakerOn
+      ? (() => {
+          stopSpeech();
+          const q = createSpeechQueue(config.ttsVoice);
+          speechQueueRef.current = q;
+          return q;
+        })()
+      : null;
+    let speechQueuedAny = false;
+    const enqueueSpeech = (raw: string) => {
+      if (!speechQueue) return;
+      const cleaned = cleanCallText(raw);
+      const parts = cleaned
+        .split(/(?<=[。！？!?；;])\s*|\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (parts.length > 0) speechQueuedAny = true;
+      parts.forEach((s) => speechQueue.enqueue(s));
+    };
+
     const result = await sendToADP({
       text: tagCallPayload(text, round),
       appKey: config.appKey,
@@ -144,6 +178,17 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
         setConversation((prev) =>
           prev.map((t) => (t.id === turnId ? { ...t, text: display } : t))
         );
+
+        // 收到完整句子就排队合成,首句不必等整段回复
+        speechRest += chunk;
+        let cut = -1;
+        for (const b of ['。', '！', '？', '；', '!', '?', ';', '\n']) {
+          cut = Math.max(cut, speechRest.lastIndexOf(b));
+        }
+        if (cut >= 0) {
+          enqueueSpeech(speechRest.slice(0, cut + 1));
+          speechRest = speechRest.slice(cut + 1);
+        }
       },
       onError: (msg) => {
         errorMsg = msg;
@@ -189,8 +234,16 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     updateRiskFromText(finalText);
     setIsAiResponding(false);
 
-    if (isSpeakerOn) {
-      playVoiceSample(finalText, config.ttsVoice);
+    if (speechQueue) {
+      if (leakIdx > 0) {
+        // 命中"演练报告/JSON"就停止后续播报,避免念出戏内容
+        speechQueue.stop();
+        speechQueueRef.current = null;
+      } else {
+        // 若流式过程中已经排过句子,只补最后一句的尾巴;
+        // 若整包返回(没走 onDelta),这里播完整文本。
+        enqueueSpeech(speechQueuedAny ? speechRest : finalText);
+      }
     }
   };
 
@@ -220,7 +273,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
     const text = (textToSend || userInput).trim();
     if (!text || isAiResponding || callState !== 'connected') return;
 
-    stopSpeaking(); // 用户开口,打断上一句朗读
+    stopSpeech(); // 用户开口,打断上一句朗读
     setUserInput('');
     setAsrStatus('');
 
@@ -236,7 +289,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
   /* ====== 按住说话:WavRecorder 录音 → ASR 识别 → 自动发送 ====== */
   const handleMicDown = async () => {
     if (isAiResponding || callState !== 'connected' || isListening) return;
-    stopSpeaking();
+    stopSpeech();
     try {
       recorderRef.current = new WavRecorder();
       await recorderRef.current.start();
@@ -279,7 +332,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
   const handleHangUp = async (reason: string = 'ended') => {
     if (stopRingRef.current) stopRingRef.current();
     if (timerRef.current) clearInterval(timerRef.current);
-    stopSpeaking();
+    stopSpeech();
 
     setCallState('analyzing');
 
@@ -480,7 +533,7 @@ export const SimulatedCallModal: React.FC<SimulatedCallModalProps> = ({
                 <button
                   onClick={() => {
                     setIsSpeakerOn(!isSpeakerOn);
-                    if (isSpeakerOn) stopSpeaking();
+                    if (isSpeakerOn) stopSpeech();
                   }}
                   className={`p-2.5 border text-xs font-mono uppercase flex flex-col items-center justify-center gap-1 flex-1 transition-colors ${
                     isSpeakerOn ? 'bg-white text-[#141414] border-white font-bold' : 'border-white/20 text-white/70 hover:border-white'

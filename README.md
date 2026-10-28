@@ -41,7 +41,7 @@ npm run dev        # 同时启动前端(Vite) + 本地代理(server.ts)
 server.ts (Express + Vite 中间件,本地代理)
   ├─ /proxy/adp → https://adp.gaoxiaobang.com/adp/v2/chat    ADP 对话(SSE 流式)
   ├─ /proxy/asr → http://8.134.117.157:10095/recognition  语音转文字(ASR)
-  └─ /proxy/tts → 服务器 Python Edge TTS(8.134.117.157:10096,支持音色/语速)
+  └─ /proxy/tts → 服务器本地离线 TTS(sherpa-onnx,8.134.117.157:10096,6 音色/语速)
 ```
 
 **语音链路三段来源:**
@@ -49,7 +49,7 @@ server.ts (Express + Vite 中间件,本地代理)
 |---|---|
 | 录音 | 浏览器本地 AudioContext 采 16kHz PCM,前端编码 WAV(MediaRecorder 的 webm 队友 ASR 不收) |
 | 语音识别(ASR) | 队友服务器 `8.134.117.157:10095`,经 `/proxy/asr` 转发,**依赖队友机器在线**;离线时打字仍可玩 |
-| 朗读(TTS) | 服务器 Python Edge TTS(edge-tts 7.3.1),6 种音色 + 语速;服务不可用时自动降级浏览器朗读 |
+| 朗读(TTS) | 服务器本地离线 TTS(sherpa-onnx + Kokoro-82M),3 女 3 男共 6 音色 + 语速;**完全不出网**;服务不可用时自动降级浏览器朗读 |
 | 对话大脑 | 你的 ADP 工作流,经 `/proxy/adp` 转发 |
 
 **ADP 协议要点(已真机验证):**
@@ -68,8 +68,8 @@ server.ts (Express + Vite 中间件,本地代理)
 | `src/utils/riskEngine.ts` | 风险词库计分 + 本地复盘报告生成(演示零依赖) |
 | `src/utils/audioHelper.ts` | TTS 播放(服务器 WAV / 降级浏览器) |
 | `server.ts` | 本地代理:静态服务 + Vite 中间件 + 三条代理路由 |
-| `edge-tts.js` | 旧版本地 Edge TTS 实现(当前未使用,保留备查) |
-| `tts_service/` | 服务器 TTS 服务源码 + 部署说明(edge-tts 7.3.1) |
+| `edge-tts.js` | 旧版 Edge TTS 实现(已弃用,合规替换,仅保留备查) |
+| `tts_service/` | 服务器本地离线 TTS 源码 + 部署说明(sherpa-onnx 1.13.7) |
 | `docs/` | **`全技术链路文档.md`(工程真相 + 排查记录,接手必读)**、PRD 产品需求文档、ADP 工作流设计方案、`ADP平台侧改动-第0天.md`(平台侧待办) |
 
 ## 打包/上线

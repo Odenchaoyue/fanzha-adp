@@ -24,7 +24,7 @@ const LS_KEYS = {
 function loadConfig(): AppConfig {
   let appKey = '';
   let visitorId = '';
-  let ttsVoice: AppConfig['ttsVoice'] = 'xiaoxiao';
+  let ttsVoice: AppConfig['ttsVoice'] = 'xiaolan';
   try {
     // AppKey 优先取自 Vite 注入的环境变量(.env: VITE_APP_KEY=...),旧版 localStorage 兜底兼容
     const envKey = (import.meta as any).env?.VITE_APP_KEY as string | undefined;
@@ -35,7 +35,7 @@ function loadConfig(): AppConfig {
     }
     visitorId = localStorage.getItem(LS_KEYS.visitor) || '';
     const v = localStorage.getItem(LS_KEYS.voice);
-    if (v === 'xiaoxiao' || v === 'xiaoyi' || v === 'xiaobei' || v === 'xiaoniang' || v === 'xiaohan' || v === 'xiaorou') {
+    if (v === 'xiaolan' || v === 'xiaoqing' || v === 'xiaoyue' || v === 'shuyan' || v === 'zimo' || v === 'qinghe') {
       ttsVoice = v;
     }
     if (!visitorId) {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ActiveModule, AppConfig } from '../types';
 import { CALL_SCENARIOS } from '../data/scenarios';
-import { playVoiceSample, EDGE_VOICE_LABELS } from '../utils/audioHelper';
+import { playVoiceSample, playStaticVoiceDemo, EDGE_VOICE_LABELS } from '../utils/audioHelper';
 
 interface HomeDashboardProps {
   onStartModule: (module: ActiveModule, scenarioId?: string) => void;
@@ -20,12 +20,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   /* 各音色的试听台词 */
   const VOICE_SAMPLES: Record<string, string> = {
-    xiaoxiao: '您好，这里是支付平台客服中心，检测到您的账户存在异常，需要配合核查。',
-    xiaoyi: '小姐姐您好，您的会员服务今天到期啦，不取消的话每个月会自动扣费哦。',
-    xiaobei: '哎呀妈呀老妹儿，你这卡涉嫌洗钱了，赶紧按我说的把钱转到安全账户，不然要出大事儿！',
-    xiaoniang: '额说你哩，这个稳赚不赔的理财名额就剩最后一个咧，错过了可就没咧。',
-    xiaohan: '您好，我是航空理赔专员，您的航班已取消，请提供银行卡号接收赔付金。',
-    xiaorou: '先生您别急，慢慢来，把验证码念给我，我帮您把退款办好哦。',
+    xiaolan: '您好，这里是支付平台客服中心，检测到您的账户存在异常，需要配合核查。',
+    xiaoqing: '同学你好，你的会员服务今天到期啦，不取消的话每个月会自动扣费哦。',
+    xiaoyue: '快来呀，这个活动名额只剩最后几个了，错过今天就要等下周啦！',
+    shuyan: '你名下银行卡涉嫌洗钱，请立即将资金转入安全账户配合清查。',
+    zimo: '我是你领导，现在不方便接电话，你先帮我垫付一笔过桥款。',
+    qinghe: '您好，我是航空理赔专员，您的航班已取消，请提供银行卡号接收赔付金。',
   };
 
   const handleTestVoice = async () => {
@@ -35,7 +35,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       '您好，这里是国家反诈中心实训智能体，请随时保持防诈警惕。';
 
     try {
-      await playVoiceSample(sampleText, config.ttsVoice);
+      // 试听优先播放预生成样音（秒开、不打服务器）；缺文件时回退实时合成
+      const played = await playStaticVoiceDemo(config.ttsVoice);
+      if (!played) await playVoiceSample(sampleText, config.ttsVoice);
     } finally {
       setTestVoicePlaying(false);
     }
@@ -376,7 +378,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   </button>
 
                   <span className="text-xs font-mono text-[#141414]/60">
-                    Edge 神经网络音色 · 经本地代理合成
+                    本地离线神经网络音色 · 试听为预生成样音
                   </span>
                 </div>
               </div>

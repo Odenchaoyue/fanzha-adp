@@ -77,7 +77,7 @@ export interface TheaterStory {
 export interface AppConfig {
   appKey: string;
   visitorId: string;
-  ttsVoice: 'xiaoxiao' | 'xiaoyi' | 'xiaobei' | 'xiaoniang' | 'xiaohan' | 'xiaorou';
+  ttsVoice: 'xiaolan' | 'xiaoqing' | 'xiaoyue' | 'shuyan' | 'zimo' | 'qinghe';
   soundEnabled: boolean;
   aiAssistance: boolean;
 }

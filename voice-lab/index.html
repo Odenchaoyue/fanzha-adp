@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>反诈智猪侠 · 本地音色试音台</title>
+<style>
+  :root {
+    --bg: #0b1020; --panel: #151b2e; --panel2: #1c2440; --line: #2a3450;
+    --text: #e8ecf7; --muted: #8b97b5; --accent: #5b8cff; --accent2: #38d39f; --warn: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    padding: 28px 22px 80px;
+  }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 16px; line-height: 1.7; }
+  .bar {
+    position: sticky; top: 0; z-index: 10; background: rgba(11,16,32,.94);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+    padding: 14px 22px; margin: 0 -22px 18px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+    transition: .15s; font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); background: #24305a; }
+  button.playing { border-color: var(--accent2); color: var(--accent2); }
+  .status { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .status b { color: var(--accent2); font-weight: 600; }
+  h2 { font-size: 15px; margin: 26px 0 10px; color: var(--muted); display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .presets { display: flex; gap: 10px; flex-wrap: wrap; }
+  .preset { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; min-width: 118px; }
+  .preset small { display: block; color: var(--muted); font-size: 11px; margin-top: 3px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+  .cell { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 9px 8px; display: flex; flex-direction: column; gap: 6px; }
+  .cell .sid { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; align-items: baseline; }
+  .cell .sid b { color: var(--text); font-size: 14px; }
+  .cell .dur { font-size: 10px; }
+  .cell .actions { display: flex; gap: 5px; }
+  .cell button { flex: 1; padding: 6px 0; font-size: 12px; }
+  .star { color: var(--muted); }
+  .star.on { color: var(--warn); border-color: var(--warn); }
+  .cell.missing { opacity: .4; }
+  .picked { background: var(--panel); border: 1px solid var(--warn); border-radius: 10px; padding: 12px 14px; margin-top: 10px; font-size: 13px; line-height: 1.9; }
+  .picked code { background: #0b1020; padding: 2px 6px; border-radius: 5px; color: var(--warn); }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 12px; line-height: 1.8; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="row">
+      <button id="stop">■ 停止</button>
+      <button id="clear">清空收藏</button>
+      <button id="copy">复制收藏编号</button>
+      <span class="status" id="status">就绪 · 本地文件播放，不走服务器</span>
+    </div>
+    <div id="pickedBox" class="picked" style="display:none"></div>
+  </div>
+
+  <h1>本地音色试音台</h1>
+  <div class="sub">
+    全部样音已在本机用 Kokoro-82M 生成（同一句「您好，我是反诈中心的工作人员。」），点击即播、零延迟。
+    听到满意的点 ★ 收藏，最后把编号发我，我在服务器上替换晓晴 / 晓悦 / 子墨的映射。
+  </div>
+
+  <h2>当前线上 6 个音色（对照用）</h2>
+  <div class="presets" id="presets"></div>
+
+  <h2>中文女声 · sid 3 – 57</h2>
+  <div class="grid" id="female"></div>
+
+  <h2>中文男声 · sid 58 – 102</h2>
+  <div class="grid" id="male"></div>
+
+  <div class="hint">
+    sid 3–57 为中文女声，58–102 为中文男声（Kokoro-82M v1.1-zh 的 speaker 编号）。
+    播放的是本文件夹 <code>samples/</code> 下的 WAV，浏览器直接读本地文件，不经过网络。
+  </div>
+
+<script>
+const PRESETS = [
+  { sid: 3,  name: "晓岚", sub: "女 · 成年 · 现用" },
+  { sid: 10, name: "晓晴", sub: "女 · 青年 · 待替换" },
+  { sid: 20, name: "晓悦", sub: "女 · 青年 · 待替换" },
+  { sid: 58, name: "述言", sub: "男 · 成年 · 现用" },
+  { sid: 65, name: "子墨", sub: "男 · 青年 · 待替换" },
+  { sid: 75, name: "清和", sub: "男 · 青年 · 现用" },
+];
+
+const picked = new Set();
+let audio = null;
+let currentBtn = null;
+let seq = 0;
+
+const statusEl = document.getElementById("status");
+const pickedBox = document.getElementById("pickedBox");
+
+function setStatus(html) { statusEl.innerHTML = html; }
+
+function renderPicked() {
+  if (picked.size === 0) { pickedBox.style.display = "none"; return; }
+  pickedBox.style.display = "block";
+  const list = [...picked].sort((a, b) => a - b).map(n => `<code>${n}</code>`).join(" ");
+  pickedBox.innerHTML = `已收藏 ${picked.size} 个：${list}`;
+}
+
+function stopAudio() {
+  if (audio) { audio.pause(); audio.src = ""; audio = null; }
+  if (currentBtn) { currentBtn.classList.remove("playing"); currentBtn = null; }
+}
+
+function playSid(sid, btn, label) {
+  const my = ++seq;
+  stopAudio();
+  currentBtn = btn;
+  if (btn) btn.classList.add("playing");
+  setStatus(`播放中 · <b>${label}</b>`);
+  const a = new Audio(`samples/sid_${sid}.wav`);
+  audio = a;
+  a.onended = () => {
+    if (currentBtn === btn) { btn && btn.classList.remove("playing"); currentBtn = null; }
+    setStatus(`播放完毕 · <b>${label}</b>`);
+  };
+  a.onerror = () => {
+    if (my !== seq) return;
+    setStatus(`缺少样音 · <b>${label}</b>（先运行 生成样音.bat）`);
+    if (btn) btn.classList.remove("playing");
+  };
+  a.play().catch(() => setStatus(`浏览器拦截了播放，请再点一次 · <b>${label}</b>`));
+}
+
+function makeCell(sid) {
+  const cell = document.createElement("div");
+  cell.className = "cell";
+  const head = document.createElement("div");
+  head.className = "sid";
+  head.innerHTML = `<span>#${sid}</span>`;
+  const playBtn = document.createElement("button");
+  playBtn.textContent = "试听";
+  playBtn.onclick = () => playSid(sid, playBtn, `sid ${sid}`);
+  const starBtn = document.createElement("button");
+  starBtn.className = "star";
+  starBtn.textContent = "★";
+  starBtn.title = "收藏";
+  starBtn.onclick = () => {
+    if (picked.has(sid)) { picked.delete(sid); starBtn.classList.remove("on"); }
+    else { picked.add(sid); starBtn.classList.add("on"); }
+    renderPicked();
+  };
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(playBtn, starBtn);
+  cell.append(head, actions);
+  return cell;
+}
+
+function fillGrid(id, from, to) {
+  const grid = document.getElementById(id);
+  for (let sid = from; sid <= to; sid++) grid.append(makeCell(sid));
+}
+
+for (const p of PRESETS) {
+  const wrap = document.createElement("div");
+  wrap.className = "preset";
+  const btn = document.createElement("button");
+  btn.style.width = "100%";
+  btn.innerHTML = `<b>${p.name}</b>`;
+  btn.onclick = () => playSid(p.sid, btn, p.name);
+  const sub = document.createElement("small");
+  sub.textContent = p.sub;
+  wrap.append(btn, sub);
+  document.getElementById("presets").append(wrap);
+}
+
+fillGrid("female", 3, 57);
+fillGrid("male", 58, 102);
+
+document.getElementById("stop").onclick = () => { seq++; stopAudio(); setStatus("已停止"); };
+document.getElementById("clear").onclick = () => {
+  picked.clear();
+  document.querySelectorAll(".star.on").forEach(el => el.classList.remove("on"));
+  renderPicked();
+};
+document.getElementById("copy").onclick = async () => {
+  const text = [...picked].sort((a, b) => a - b).join(", ");
+  try { await navigator.clipboard.writeText(text); setStatus(`已复制：<b>${text || "（空）"}</b>`); }
+  catch { setStatus(`收藏编号：<b>${text || "（空）"}</b>`); }
+};
+</script>
+</body>
+</html>
